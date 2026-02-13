@@ -1,0 +1,20 @@
+﻿<!-- src/Messaging.OutboxInbox/Messaging.OutboxInbox.csproj -->
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<LangVersion>latest</LangVersion>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<PackageId>Messaging.OutboxInbox</PackageId>
+		<Version>1.0.0</Version>
+		<Authors>Your Name</Authors>
+		<Description>Outbox and Inbox pattern implementation for reliable messaging</Description>
+	</PropertyGroup>
+	<ItemGroup>
+		<PackageReference Include="MediatR" Version="12.4.1" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+	</ItemGroup>
+</Project>
