@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Messaging.OutboxInbox.Services;
 
-internal sealed class OutboxMessagesService : IOutboxMessagesService
+public sealed class OutboxMessagesService : IOutboxMessagesService
 {
     private readonly DbContext _context;
 

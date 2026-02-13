@@ -1,7 +1,6 @@
-﻿// src/Messaging.OutboxInbox.AspNetCore/Subscribers/RabbitMqSubscriber.cs
-using System.Text;
+﻿using System.Text;
 using Messaging.OutboxInbox.AspNetCore.Options;
-using Messaging.OutboxInbox.AspNetCore.Signals;
+using Messaging.OutboxInbox.AspNetCore.Queues;
 using Messaging.OutboxInbox.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -9,14 +8,14 @@ using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
-namespace Messaging.OutboxInbox.AspNetCore.Subscribers;
+namespace Messaging.OutboxInbox.AspNetCore.MessageBroker;
 
 internal sealed class RabbitMqSubscriber : IAsyncDisposable
 {
     private readonly IConnection _connection;
     private readonly MessageSubscriberOptions _options;
     private readonly IServiceProvider _serviceProvider;
-    private readonly IInboxSignal _signal;
+    private readonly IInboxMessageQueue _inboxQueue;
     private readonly ILogger<RabbitMqSubscriber> _logger;
     private IChannel? _channel;
 
@@ -24,13 +23,13 @@ internal sealed class RabbitMqSubscriber : IAsyncDisposable
         IConnection connection,
         IOptions<MessageSubscriberOptions> options,
         IServiceProvider serviceProvider,
-        IInboxSignal signal,
+        IInboxMessageQueue inboxQueue,
         ILogger<RabbitMqSubscriber> logger)
     {
         _connection = connection;
         _options = options.Value;
         _serviceProvider = serviceProvider;
-        _signal = signal;
+        _inboxQueue = inboxQueue;
         _logger = logger;
     }
 
@@ -83,12 +82,19 @@ internal sealed class RabbitMqSubscriber : IAsyncDisposable
             using var scope = _serviceProvider.CreateScope();
             var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
 
+            // Try to insert - idempotency handled in service
             var inserted = await inboxService.TryInsertAsync(messageId, messageType, content, occurredAt);
 
             if (inserted)
             {
-                // Signal processor that new message is available
-                _signal.Notify();
+                // Get the inserted record and enqueue for processing
+                var messages = await inboxService.GetUnprocessedListAsync();
+                var message = messages.FirstOrDefault(m => m.Id == messageId);
+
+                if (message is not null)
+                {
+                    _inboxQueue.Enqueue(message);
+                }
             }
 
             await _channel!.BasicAckAsync(args.DeliveryTag, false);

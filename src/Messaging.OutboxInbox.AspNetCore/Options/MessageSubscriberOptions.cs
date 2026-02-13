@@ -2,7 +2,7 @@
 
 public sealed class MessageSubscriberOptions
 {
-    public const string SectionName = "MessageSubscriber";
+    public const string Section = "MessageSubscriber";
 
     public string ExchangeName { get; set; } = "messaging.events";
     public string QueueName { get; set; } = "inbox.queue";

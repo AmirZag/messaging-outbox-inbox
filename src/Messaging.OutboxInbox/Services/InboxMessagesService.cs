@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Messaging.OutboxInbox.Services;
 
-internal sealed class InboxMessagesService : IInboxMessagesService
+public sealed class InboxMessagesService : IInboxMessagesService
 {
     private readonly DbContext _context;
 

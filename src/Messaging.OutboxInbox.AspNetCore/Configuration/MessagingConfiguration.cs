@@ -1,4 +1,4 @@
-﻿// src/Messaging.OutboxInbox.AspNetCore/Configuration/MessagingConfiguration.cs
+﻿// Messaging.OutboxInbox.AspNetCore/Configuration/MessagingConfiguration.cs
 using Messaging.OutboxInbox.Abstractions;
 
 namespace Messaging.OutboxInbox.AspNetCore.Configuration;
