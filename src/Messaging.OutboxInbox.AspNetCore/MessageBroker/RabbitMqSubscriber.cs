@@ -78,9 +78,9 @@ internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
             var messageId = Guid.Parse(args.BasicProperties.MessageId!);
             var messageType = args.BasicProperties.Type!;
             var content = Encoding.UTF8.GetString(args.Body.ToArray());
-            var occurredAt = DateTimeOffset.FromUnixTimeSeconds(args.BasicProperties.Timestamp.UnixTime).DateTime;
+            var occurredAt = DateTimeOffset.FromUnixTimeSeconds(args.BasicProperties.Timestamp.UnixTime).UtcDateTime; // Fixed: Use UtcDateTime
 
-            using var scope = _serviceProvider.CreateScope();
+            await using var scope = _serviceProvider.CreateAsyncScope();
             var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
 
             // Try to insert - idempotency handled in service
@@ -91,7 +91,6 @@ internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
                 // Get the inserted record and enqueue for processing
                 var messages = await inboxService.GetUnprocessedListAsync();
                 var message = messages.FirstOrDefault(m => m.Id == messageId);
-
                 if (message is not null)
                 {
                     _inboxQueue.Enqueue(message);

@@ -23,20 +23,23 @@ public static class OutboxInboxServiceExtensions
         builder.Services.Configure<MessagePublisherOptions>(
             builder.Configuration.GetSection(MessagePublisherOptions.Section));
 
-        // RabbitMQ Connection (Singleton)
-        builder.Services.AddSingleton<IConnection>(sp =>
+        // RabbitMQ Connection (Singleton) - Only register if not already registered by Aspire
+        if (!builder.Services.Any(x => x.ServiceType == typeof(IConnection)))
         {
-            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqOptions>>().Value;
-            var factory = new ConnectionFactory
+            builder.Services.AddSingleton<IConnection>(sp =>
             {
-                HostName = options.HostName,
-                Port = options.Port,
-                UserName = options.UserName,
-                Password = options.Password
-            };
+                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqOptions>>().Value;
+                var factory = new ConnectionFactory
+                {
+                    HostName = options.HostName,
+                    Port = options.Port,
+                    UserName = options.UserName,
+                    Password = options.Password
+                };
 
-            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
-        });
+                return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+            });
+        }
 
         // Queue (Singleton) - MUST be registered before DbContext
         builder.Services.AddSingleton<IOutboxMessageQueue, OutboxMessageQueue>();
@@ -142,19 +145,26 @@ public static class OutboxInboxServiceExtensions
         builder.Services.Configure<RabbitMqOptions>(
             builder.Configuration.GetSection(RabbitMqOptions.Section));
 
-        builder.Services.AddSingleton<IConnection>(sp =>
+        // RabbitMQ Connection - Only register if not already registered by Aspire
+        if (!builder.Services.Any(x => x.ServiceType == typeof(IConnection)))
         {
-            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqOptions>>().Value;
-            var factory = new ConnectionFactory
-            {
-                HostName = options.HostName,
-                Port = options.Port,
-                UserName = options.UserName,
-                Password = options.Password
-            };
+            builder.Services.Configure<RabbitMqOptions>(
+                builder.Configuration.GetSection(RabbitMqOptions.Section));
 
-            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
-        });
+            builder.Services.AddSingleton<IConnection>(sp =>
+            {
+                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqOptions>>().Value;
+                var factory = new ConnectionFactory
+                {
+                    HostName = options.HostName,
+                    Port = options.Port,
+                    UserName = options.UserName,
+                    Password = options.Password
+                };
+
+                return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+            });
+        }
 
         // Add outbox (without adding RabbitMQ connection again)
         builder.Services.Configure<MessagePublisherOptions>(

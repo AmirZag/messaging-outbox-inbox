@@ -60,7 +60,7 @@ internal sealed class OutboxHostedService : BackgroundService
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
+            await using var scope = _serviceProvider.CreateAsyncScope();
             var outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
 
             var unprocessedMessages = await outboxService.GetUnprocessedListAsync(cancellationToken);
@@ -83,7 +83,7 @@ internal sealed class OutboxHostedService : BackgroundService
 
     private async Task ProcessMessageAsync(Messaging.OutboxInbox.Entities.OutboxRecord message, CancellationToken cancellationToken)
     {
-        using var scope = _serviceProvider.CreateScope();
+        await using var scope = _serviceProvider.CreateAsyncScope();
         var outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
         var rabbitMqPublisher = scope.ServiceProvider.GetRequiredService<RabbitMqPublisher>();
 

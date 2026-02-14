@@ -61,7 +61,7 @@ internal sealed class InboxHostedService : BackgroundService
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
+            await using var scope = _serviceProvider.CreateAsyncScope();
             var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
 
             var unprocessedMessages = await inboxService.GetUnprocessedListAsync(cancellationToken);
@@ -84,7 +84,7 @@ internal sealed class InboxHostedService : BackgroundService
 
     private async Task ProcessMessageAsync(Messaging.OutboxInbox.Entities.InboxRecord message, CancellationToken cancellationToken)
     {
-        using var scope = _serviceProvider.CreateScope();
+        await using var scope = _serviceProvider.CreateAsyncScope();
         var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
