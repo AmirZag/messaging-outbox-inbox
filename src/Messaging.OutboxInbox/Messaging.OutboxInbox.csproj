@@ -12,9 +12,11 @@
 		<Description>Outbox and Inbox pattern implementation for reliable messaging</Description>
 	</PropertyGroup>
 	<ItemGroup>
+		<InternalsVisibleTo Include="Messaging.OutboxInbox.AspNetCore" />
+	</ItemGroup>
+	<ItemGroup>
 		<PackageReference Include="MediatR" Version="12.4.1" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0" />
-		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
 	</ItemGroup>
 </Project>

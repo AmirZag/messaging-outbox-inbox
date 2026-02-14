@@ -3,5 +3,5 @@
     <Project Path="src/Messaging.OutboxInbox.AspNetCore/Messaging.OutboxInbox.AspNetCore.csproj" Id="fdac40f6-2de7-4f88-91a1-5e790d3aaec1" />
     <Project Path="src/Messaging.OutboxInbox/Messaging.OutboxInbox.csproj" Id="078b1956-4d7a-4f26-90ab-513c10040c93" />
   </Folder>
-  <Folder Name="/test/" />
+  <Folder Name="/tests/" />
 </Solution>

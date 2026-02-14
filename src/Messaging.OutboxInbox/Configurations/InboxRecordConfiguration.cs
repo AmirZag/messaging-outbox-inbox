@@ -29,6 +29,6 @@ public class InboxRecordConfiguration : IEntityTypeConfiguration<InboxRecord>
             .HasMaxLength(2000);
 
         builder.HasIndex(x => new { x.ProcessedAt, x.OccurredAt })
-            .HasFilter("[ProcessedAt] IS NULL");
+            .HasFilter("\"ProcessedAt\" IS NULL");
     }
 }

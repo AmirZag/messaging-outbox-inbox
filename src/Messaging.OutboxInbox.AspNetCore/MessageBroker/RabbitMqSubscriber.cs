@@ -3,6 +3,7 @@ using Messaging.OutboxInbox.AspNetCore.Options;
 using Messaging.OutboxInbox.AspNetCore.Queues;
 using Messaging.OutboxInbox.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
@@ -10,7 +11,7 @@ using RabbitMQ.Client.Events;
 
 namespace Messaging.OutboxInbox.AspNetCore.MessageBroker;
 
-internal sealed class RabbitMqSubscriber : IAsyncDisposable
+internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
 {
     private readonly IConnection _connection;
     private readonly MessageSubscriberOptions _options;
@@ -104,6 +105,12 @@ internal sealed class RabbitMqSubscriber : IAsyncDisposable
             _logger.LogError(ex, "Error processing message from RabbitMQ");
             await _channel!.BasicNackAsync(args.DeliveryTag, false, true);
         }
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("RabbitMQ Subscriber stopping");
+        return Task.CompletedTask;
     }
 
     public async ValueTask DisposeAsync()

@@ -2,7 +2,8 @@
 using Messaging.OutboxInbox.Entities;
 using Messaging.OutboxInbox.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
+
+namespace Messaging.OutboxInbox;
 
 public abstract class OutboxInboxContext : DbContext
 {
@@ -22,37 +23,33 @@ public abstract class OutboxInboxContext : DbContext
         _includeMessageOutbox = true;
     }
 
-    /// <summary>
-    /// Sets the outbox enqueue callback - called by DI container
-    /// </summary>
-    public void SetOutboxEnqueue(Action<OutboxRecord> enqueueAction)
+    internal void SetOutboxEnqueueAction(Action<OutboxRecord> action)
     {
-        _outboxEnqueueAction = enqueueAction;
+        _outboxEnqueueAction = action;
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        // Collect new outbox messages BEFORE save
-        List<OutboxRecord>? newOutboxMessages = null;
+        // Capture outbox records that are being added BEFORE saving
+        List<OutboxRecord>? pendingOutboxRecords = null;
 
         if (_includeMessageOutbox && _outboxEnqueueAction is not null)
         {
-            newOutboxMessages = ChangeTracker
-                .Entries<OutboxRecord>()
+            pendingOutboxRecords = ChangeTracker.Entries<OutboxRecord>()
                 .Where(e => e.State == EntityState.Added)
                 .Select(e => e.Entity)
                 .ToList();
         }
 
-        // Save to database
+        // Save changes - this commits the transaction
         var result = await base.SaveChangesAsync(cancellationToken);
 
-        // Enqueue AFTER successful save
-        if (newOutboxMessages?.Count > 0)
+        // After successful save, enqueue the messages for background processing
+        if (pendingOutboxRecords is not null && pendingOutboxRecords.Count > 0)
         {
-            foreach (var message in newOutboxMessages)
+            foreach (var record in pendingOutboxRecords)
             {
-                _outboxEnqueueAction!(message);
+                _outboxEnqueueAction!(record);
             }
         }
 
@@ -61,27 +58,26 @@ public abstract class OutboxInboxContext : DbContext
 
     public override int SaveChanges()
     {
-        // Collect new outbox messages BEFORE save
-        List<OutboxRecord>? newOutboxMessages = null;
+        // Capture outbox records that are being added BEFORE saving
+        List<OutboxRecord>? pendingOutboxRecords = null;
 
         if (_includeMessageOutbox && _outboxEnqueueAction is not null)
         {
-            newOutboxMessages = ChangeTracker
-                .Entries<OutboxRecord>()
+            pendingOutboxRecords = ChangeTracker.Entries<OutboxRecord>()
                 .Where(e => e.State == EntityState.Added)
                 .Select(e => e.Entity)
                 .ToList();
         }
 
-        // Save to database
+        // Save changes - this commits the transaction
         var result = base.SaveChanges();
 
-        // Enqueue AFTER successful save
-        if (newOutboxMessages?.Count > 0)
+        // After successful save, enqueue the messages for background processing
+        if (pendingOutboxRecords is not null && pendingOutboxRecords.Count > 0)
         {
-            foreach (var message in newOutboxMessages)
+            foreach (var record in pendingOutboxRecords)
             {
-                _outboxEnqueueAction!(message);
+                _outboxEnqueueAction!(record);
             }
         }
 

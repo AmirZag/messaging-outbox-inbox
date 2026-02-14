@@ -1,5 +1,4 @@
-﻿// Messaging.OutboxInbox.AspNetCore/HostedServices/OutboxHostedService.cs
-using Messaging.OutboxInbox.AspNetCore.Publishers;
+﻿using Messaging.OutboxInbox.AspNetCore.MessageBroker;
 using Messaging.OutboxInbox.AspNetCore.Queues;
 using Messaging.OutboxInbox.Services;
 using Microsoft.Extensions.DependencyInjection;

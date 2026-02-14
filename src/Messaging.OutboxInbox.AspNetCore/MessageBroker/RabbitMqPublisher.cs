@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 
-namespace Messaging.OutboxInbox.AspNetCore.Publishers;
+namespace Messaging.OutboxInbox.AspNetCore.MessageBroker;
 
 internal sealed class RabbitMqPublisher : IAsyncDisposable
 {
