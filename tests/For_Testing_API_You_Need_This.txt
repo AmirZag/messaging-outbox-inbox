@@ -1,0 +1,10 @@
+Post : https://localhost:7196/api/conversions
+
+//Body
+{
+  "dataSource": "IranPostDb Import",
+  "fileName": "db_20261402.db",
+  "filePath": "/uploads/db_20261402.db",
+  "convertedRecordsCount": 850,
+  "totalRecordCount": 1000
+}
