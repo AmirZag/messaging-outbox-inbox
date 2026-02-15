@@ -42,7 +42,7 @@ public sealed class ConversionCompletedMessageHandler : IMessageHandler<Conversi
         // Create audit log
         var auditLog = new ConversionAuditLog
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             ConversionId = message.ConversionId,
             DataSource = message.DataSource,
             FileName = message.FileName,
