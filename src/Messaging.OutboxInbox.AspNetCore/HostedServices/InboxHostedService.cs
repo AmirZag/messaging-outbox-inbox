@@ -1,10 +1,11 @@
-﻿using System.Text.Json;
-using MediatR;
+﻿using MediatR;
 using Messaging.OutboxInbox.AspNetCore.Queues;
+using Messaging.OutboxInbox.Entities;
 using Messaging.OutboxInbox.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace Messaging.OutboxInbox.AspNetCore.HostedServices;
 
@@ -38,7 +39,7 @@ internal sealed class InboxHostedService : BackgroundService
         {
             try
             {
-                var message = await _inboxQueue.DequeueAsync(stoppingToken);
+                InboxRecord? message = await _inboxQueue.DequeueAsync(stoppingToken);
 
                 if (message is null) continue;
 
@@ -61,12 +62,13 @@ internal sealed class InboxHostedService : BackgroundService
     {
         try
         {
-            await using var scope = _serviceProvider.CreateAsyncScope();
-            var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
+            await using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
 
-            var unprocessedMessages = await inboxService.GetUnprocessedListAsync(cancellationToken);
+            IInboxMessagesService inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
 
-            foreach (var message in unprocessedMessages)
+            IEnumerable<InboxRecord> unprocessedMessages = await inboxService.GetUnprocessedListAsync(cancellationToken);
+
+            foreach (InboxRecord message in unprocessedMessages)
             {
                 _inboxQueue.Enqueue(message);
             }
@@ -82,19 +84,21 @@ internal sealed class InboxHostedService : BackgroundService
         }
     }
 
-    private async Task ProcessMessageAsync(Messaging.OutboxInbox.Entities.InboxRecord message, CancellationToken cancellationToken)
+    private async Task ProcessMessageAsync(InboxRecord message, CancellationToken cancellationToken)
     {
-        await using var scope = _serviceProvider.CreateAsyncScope();
-        var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
-        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        await using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
+
+        IInboxMessagesService inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
+
+        IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
         try
         {
-            var messageType = Type.GetType(message.Type);
+            Type? messageType = Type.GetType(message.Type);
             if (messageType is null)
                 throw new InvalidOperationException($"Type not found: {message.Type}");
 
-            var deserializedMessage = JsonSerializer.Deserialize(message.Content, messageType);
+            object? deserializedMessage = JsonSerializer.Deserialize(message.Content, messageType);
             if (deserializedMessage is null)
                 throw new InvalidOperationException($"Failed to deserialize message {message.Id}");
 

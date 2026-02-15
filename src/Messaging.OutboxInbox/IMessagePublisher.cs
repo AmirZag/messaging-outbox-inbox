@@ -1,4 +1,4 @@
-﻿namespace Messaging.OutboxInbox.Abstractions;
+﻿namespace Messaging.OutboxInbox;
 
 /// <summary>
 /// Publisher for messages using the Outbox pattern.

@@ -1,6 +1,4 @@
-﻿using Messaging.OutboxInbox.Abstractions;
-
-namespace Messaging.OutboxInbox.AspNetCore.Configuration;
+﻿namespace Messaging.OutboxInbox.AspNetCore.Extensions;
 
 public sealed class MessagingConfiguration
 {

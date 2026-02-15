@@ -1,5 +1,5 @@
-﻿using System.Collections.Concurrent;
-using Messaging.OutboxInbox.Entities;
+﻿using Messaging.OutboxInbox.Entities;
+using System.Collections.Concurrent;
 
 namespace Messaging.OutboxInbox.AspNetCore.Queues;
 

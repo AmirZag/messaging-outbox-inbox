@@ -1,6 +1,6 @@
-using Messaging.OutboxInbox.Abstractions;
+using Messaging.OutboxInbox;
+using Messaging.OutboxInbox.AspNetCore.Extensions.DbContextExtensions;
 using Messaging.OutboxInbox.AspNetCore.Extensions;
-using Messaging.OutboxInbox.Extensions;
 using Microsoft.EntityFrameworkCore;
 using OutboxInbox.Api.Data;
 using OutboxInbox.Api.Messages;

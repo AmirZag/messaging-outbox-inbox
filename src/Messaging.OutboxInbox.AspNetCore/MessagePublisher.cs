@@ -1,5 +1,4 @@
-﻿using Messaging.OutboxInbox.Abstractions;
-using Messaging.OutboxInbox.Entities;
+﻿using Messaging.OutboxInbox.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -26,13 +25,10 @@ internal sealed class MessagePublisher : IMessagePublisher
 
         var outboxRecord = new OutboxRecord
         {
-            Id = Guid.NewGuid(),
             Type = messageType,
-            Content = content,
-            OccurredAt = DateTime.UtcNow
+            Content = content
         };
 
         _context.Set<OutboxRecord>().Add(outboxRecord);
-
     }
 }

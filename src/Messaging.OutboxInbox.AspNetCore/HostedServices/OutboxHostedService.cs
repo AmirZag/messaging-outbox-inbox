@@ -1,5 +1,6 @@
 ﻿using Messaging.OutboxInbox.AspNetCore.MessageBroker;
 using Messaging.OutboxInbox.AspNetCore.Queues;
+using Messaging.OutboxInbox.Entities;
 using Messaging.OutboxInbox.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -13,8 +14,7 @@ internal sealed class OutboxHostedService : BackgroundService
     private readonly IOutboxMessageQueue _outboxQueue;
     private readonly ILogger<OutboxHostedService> _logger;
 
-    public OutboxHostedService(
-        IServiceProvider serviceProvider,
+    public OutboxHostedService(IServiceProvider serviceProvider,
         IOutboxMessageQueue outboxQueue,
         ILogger<OutboxHostedService> logger)
     {
@@ -26,6 +26,7 @@ internal sealed class OutboxHostedService : BackgroundService
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         await LoadUnprocessedMessagesAsync(cancellationToken);
+
         await base.StartAsync(cancellationToken);
     }
 
@@ -37,7 +38,7 @@ internal sealed class OutboxHostedService : BackgroundService
         {
             try
             {
-                var message = await _outboxQueue.DequeueAsync(stoppingToken);
+                OutboxRecord? message = await _outboxQueue.DequeueAsync(stoppingToken);
 
                 if (message is null) continue;
 
@@ -60,12 +61,12 @@ internal sealed class OutboxHostedService : BackgroundService
     {
         try
         {
-            await using var scope = _serviceProvider.CreateAsyncScope();
-            var outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
+            await using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
+            IOutboxMessagesService outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
 
-            var unprocessedMessages = await outboxService.GetUnprocessedListAsync(cancellationToken);
+            IEnumerable<OutboxRecord> unprocessedMessages = await outboxService.GetUnprocessedListAsync(cancellationToken);
 
-            foreach (var message in unprocessedMessages)
+            foreach (OutboxRecord message in unprocessedMessages)
             {
                 _outboxQueue.Enqueue(message);
             }
@@ -81,15 +82,18 @@ internal sealed class OutboxHostedService : BackgroundService
         }
     }
 
-    private async Task ProcessMessageAsync(Messaging.OutboxInbox.Entities.OutboxRecord message, CancellationToken cancellationToken)
+    private async Task ProcessMessageAsync(OutboxRecord message, CancellationToken cancellationToken)
     {
-        await using var scope = _serviceProvider.CreateAsyncScope();
-        var outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
-        var rabbitMqPublisher = scope.ServiceProvider.GetRequiredService<RabbitMqPublisher>();
+        await using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
+
+        IOutboxMessagesService outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
+        
+        RabbitMqPublisher rabbitMqPublisher = scope.ServiceProvider.GetRequiredService<RabbitMqPublisher>();
 
         try
         {
             await rabbitMqPublisher.PublishAsync(message, cancellationToken);
+
             await outboxService.MarkAsProcessedAsync(message.Id, cancellationToken);
 
             _logger.LogInformation("Processed outbox message {MessageId}", message.Id);
@@ -97,6 +101,7 @@ internal sealed class OutboxHostedService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process outbox message {MessageId}", message.Id);
+
             await outboxService.MarkAsFailedAsync(message.Id, ex.Message, cancellationToken);
         }
     }

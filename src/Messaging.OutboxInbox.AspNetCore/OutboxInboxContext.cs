@@ -1,6 +1,6 @@
-﻿using Messaging.OutboxInbox.Configurations;
+﻿using Messaging.OutboxInbox.AspNetCore.Extensions.DbContextExtensions;
+using Messaging.OutboxInbox.Configurations;
 using Messaging.OutboxInbox.Entities;
-using Messaging.OutboxInbox.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 
 namespace Messaging.OutboxInbox;

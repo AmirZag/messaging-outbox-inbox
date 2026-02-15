@@ -1,5 +1,4 @@
-﻿using System.Text;
-using Messaging.OutboxInbox.AspNetCore.Options;
+﻿using Messaging.OutboxInbox.AspNetCore.Options;
 using Messaging.OutboxInbox.AspNetCore.Queues;
 using Messaging.OutboxInbox.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using System.Text;
 
 namespace Messaging.OutboxInbox.AspNetCore.MessageBroker;
 
@@ -78,7 +78,7 @@ internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
             var messageId = Guid.Parse(args.BasicProperties.MessageId!);
             var messageType = args.BasicProperties.Type!;
             var content = Encoding.UTF8.GetString(args.Body.ToArray());
-            var occurredAt = DateTimeOffset.FromUnixTimeSeconds(args.BasicProperties.Timestamp.UnixTime).UtcDateTime; // Fixed: Use UtcDateTime
+            var occurredAt = DateTimeOffset.FromUnixTimeSeconds(args.BasicProperties.Timestamp.UnixTime).UtcDateTime;
 
             await using var scope = _serviceProvider.CreateAsyncScope();
             var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();

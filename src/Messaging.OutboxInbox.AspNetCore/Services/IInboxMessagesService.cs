@@ -1,6 +1,7 @@
 ﻿using Messaging.OutboxInbox.Entities;
 
 namespace Messaging.OutboxInbox.Services;
+
 public interface IInboxMessagesService
 {
     Task<IEnumerable<InboxRecord>> GetUnprocessedListAsync(CancellationToken cancellationToken = default);

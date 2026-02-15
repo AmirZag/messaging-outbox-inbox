@@ -1,4 +1,4 @@
-﻿using Messaging.OutboxInbox.Abstractions;
+﻿using Messaging.OutboxInbox;
 using OutboxInbox.Api.Data;
 using OutboxInbox.Api.Models;
 

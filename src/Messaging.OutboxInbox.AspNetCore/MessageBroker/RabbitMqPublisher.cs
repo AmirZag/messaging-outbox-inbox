@@ -1,9 +1,9 @@
-﻿using System.Text;
-using Messaging.OutboxInbox.AspNetCore.Options;
+﻿using Messaging.OutboxInbox.AspNetCore.Options;
 using Messaging.OutboxInbox.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
+using System.Text;
 
 namespace Messaging.OutboxInbox.AspNetCore.MessageBroker;
 

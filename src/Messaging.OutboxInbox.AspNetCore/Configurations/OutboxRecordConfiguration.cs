@@ -17,7 +17,7 @@ internal sealed class OutboxRecordConfiguration : IEntityTypeConfiguration<Outbo
 
         builder.Property(o => o.Content)
             .IsRequired()
-            .HasMaxLength(2000)
+            .HasMaxLength(8000)
             .HasColumnType("jsonb");
 
         builder.Property(o => o.OccurredAt)
@@ -28,7 +28,7 @@ internal sealed class OutboxRecordConfiguration : IEntityTypeConfiguration<Outbo
         builder.Property(o => o.Error)
             .HasMaxLength(2000);
 
-        builder.HasIndex(x => new { x.ProcessedAt, x.OccurredAt })
+        builder.HasIndex(x => x.ProcessedAt)
             .HasFilter("\"ProcessedAt\" IS NULL");
     }
 }

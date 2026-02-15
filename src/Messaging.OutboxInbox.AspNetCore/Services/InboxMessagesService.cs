@@ -6,9 +6,9 @@ namespace Messaging.OutboxInbox.Services;
 
 public sealed class InboxMessagesService : IInboxMessagesService
 {
-    private readonly DbContext _context;
+    private readonly OutboxInboxContext _context;
 
-    public InboxMessagesService(DbContext context)
+    public InboxMessagesService(OutboxInboxContext context)
     {
         _context = context;
     }
@@ -25,17 +25,17 @@ public sealed class InboxMessagesService : IInboxMessagesService
     public async Task<bool> TryInsertAsync<TMessage>(Guid messageId, TMessage message, DateTime occurredAt, CancellationToken cancellationToken = default)
         where TMessage : class
     {
-        var messageType = typeof(TMessage).AssemblyQualifiedName
+        string messageType = typeof(TMessage).AssemblyQualifiedName
             ?? throw new InvalidOperationException($"Cannot determine type name for {typeof(TMessage).Name}");
 
-        var content = JsonSerializer.Serialize(message);
+        string content = JsonSerializer.Serialize(message);
 
         return await TryInsertAsync(messageId, messageType, content, occurredAt, cancellationToken);
     }
 
     public async Task<bool> TryInsertAsync(Guid messageId, string messageType, string content, DateTime occurredAt, CancellationToken cancellationToken = default)
     {
-        var exists = await _context.Set<InboxRecord>()
+        bool exists = await _context.Set<InboxRecord>()
             .AnyAsync(x => x.Id == messageId, cancellationToken);
 
         if (exists)

@@ -1,4 +1,4 @@
-﻿using Messaging.OutboxInbox.Abstractions;
+﻿using Messaging.OutboxInbox;
 
 namespace OutboxInbox.Api.Messages;
 
