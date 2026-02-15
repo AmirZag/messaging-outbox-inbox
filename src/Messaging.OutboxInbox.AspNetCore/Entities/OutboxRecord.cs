@@ -7,8 +7,7 @@ public sealed class OutboxRecord
         OccurredAt = DateTime.UtcNow;
     }
 
-    // TODO: [Value Generated On Add]
-    public Guid Id { get; private set; }
+    public Guid Id { get; set; }
 
     public required string Type { get; init; }
     

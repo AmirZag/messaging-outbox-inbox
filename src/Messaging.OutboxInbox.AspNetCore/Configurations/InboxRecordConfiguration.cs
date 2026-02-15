@@ -13,7 +13,7 @@ public class InboxRecordConfiguration : IEntityTypeConfiguration<InboxRecord>
 
         builder.Property(o => o.Type)
             .IsRequired()
-            .HasMaxLength(500);
+            .HasMaxLength(2000);
 
         builder.Property(o => o.Content)
             .IsRequired()

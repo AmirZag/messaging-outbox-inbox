@@ -13,7 +13,7 @@ internal sealed class OutboxRecordConfiguration : IEntityTypeConfiguration<Outbo
 
         builder.Property(o => o.Type)
             .IsRequired()
-            .HasMaxLength(500);
+            .HasMaxLength(2000);
 
         builder.Property(o => o.Content)
             .IsRequired()

@@ -76,7 +76,6 @@ conversions.MapPost("/", async (
     // Create the conversion record
     var conversion = new ConversionRecord
     {
-        Id = Guid.NewGuid(),
         DataSource = request.DataSource,
         FileName = request.FileName,
         FilePath = request.FilePath,
@@ -101,7 +100,7 @@ conversions.MapPost("/", async (
         FinishedAt = conversion.FinishedAt
     };
 
-    await publisher.PublishAsync(message, cancellationToken);
+    await publisher.PublishAsync(message, conversion.Id, cancellationToken);
 
     logger.LogInformation("📤 Message added to outbox for conversion {ConversionId}", conversion.Id);
 

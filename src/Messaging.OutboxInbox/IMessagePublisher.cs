@@ -9,9 +9,8 @@ public interface IMessagePublisher
 {
     /// <summary>
     /// Publishes a message using the Outbox pattern.
-    /// This adds the message to the outbox table (persisted when you call SaveChangesAsync on your DbContext)
-    /// and signals the background processor to check for new messages.
+    /// The messageId will be set to match your business entity's database-generated ID.
     /// </summary>
-    Task PublishAsync<TMessage>(TMessage message, CancellationToken cancellationToken = default)
+    Task PublishAsync<TMessage>(TMessage message, Guid messageId, CancellationToken cancellationToken = default)
         where TMessage : IMessage;
 }

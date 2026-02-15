@@ -13,7 +13,7 @@ internal sealed class MessagePublisher : IMessagePublisher
         _context = context;
     }
 
-    public async Task PublishAsync<TMessage>(TMessage message, CancellationToken cancellationToken = default)
+    public async Task PublishAsync<TMessage>(TMessage message, Guid messageId, CancellationToken cancellationToken = default)
         where TMessage : IMessage
     {
         ArgumentNullException.ThrowIfNull(message);
@@ -25,6 +25,7 @@ internal sealed class MessagePublisher : IMessagePublisher
 
         var outboxRecord = new OutboxRecord
         {
+            Id = messageId,
             Type = messageType,
             Content = content
         };
