@@ -11,7 +11,8 @@ var rabbitmq = builder.AddRabbitMQ("rabbitmq")
     .WithDataVolume()
     .WithManagementPlugin();
 
-// Add API (both publisher and subscriber)
+
+// Add Combined API (Both)
 builder.AddProject<Projects.OutboxInbox_Api>("api")
     .WithReference(appDb)
     .WaitFor(appDb)

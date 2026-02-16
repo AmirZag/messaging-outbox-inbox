@@ -56,19 +56,40 @@ builder.AddMessagingHandlers<AppDbContext>(config =>
     config.AddSubscriber<ConversionCompletedMessage, ConversionCompletedMessageHandler>();
 });
 
-
-
-
-
 var app = builder.Build();
 
 
-//temporary database just for testing
+////temporary database just for testing
+//using (var scope = app.Services.CreateScope())
+//{
+//    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+//    await dbContext.Database.EnsureDeletedAsync(); // Deletes existing DB
+//    await dbContext.Database.EnsureCreatedAsync(); // Creates fresh schema
+//}
+
+//// WITH proper migrations:
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await dbContext.Database.EnsureDeletedAsync(); // Deletes existing DB
-    await dbContext.Database.EnsureCreatedAsync(); // Creates fresh schema
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+    try
+    {
+        if (app.Environment.IsDevelopment())
+        {
+            logger.LogWarning("🗑️  Dropping database for clean migration...");
+            await dbContext.Database.EnsureDeletedAsync();
+        }
+
+        logger.LogInformation("🔄 Applying database migrations...");
+        await dbContext.Database.MigrateAsync();
+        logger.LogInformation("✅ Database migrations applied successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "❌ Error applying migrations");
+        throw;
+    }
 }
 
 // Configure middleware
