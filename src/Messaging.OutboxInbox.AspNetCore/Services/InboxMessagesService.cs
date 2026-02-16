@@ -6,9 +6,9 @@ namespace Messaging.OutboxInbox.Services;
 
 public sealed class InboxMessagesService : IInboxMessagesService
 {
-    private readonly OutboxInboxContext _context;
+    private readonly DbContext _context;
 
-    public InboxMessagesService(OutboxInboxContext context)
+    public InboxMessagesService(DbContext context)
     {
         _context = context;
     }

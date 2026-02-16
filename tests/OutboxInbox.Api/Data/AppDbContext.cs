@@ -4,7 +4,7 @@ using OutboxInbox.Api.Models;
 
 namespace OutboxInbox.Api.Data;
 
-public class AppDbContext : OutboxInboxContext
+public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {

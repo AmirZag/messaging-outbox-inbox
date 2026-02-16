@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Messaging.OutboxInbox.AspNetCore.Extensions.DbContextExtensions;
 
@@ -9,7 +10,17 @@ internal sealed class OutboxMessageOnlySupportOption : IDbContextOptionsExtensio
 
     public DbContextOptionsExtensionInfo Info => _info ??= new ExtensionInfo(this);
 
-    public void ApplyServices(IServiceCollection services) { }
+    public void ApplyServices(IServiceCollection services)
+    {
+        services.Replace(ServiceDescriptor.Singleton<IModelCustomizer, MessagingModelCustomizer>());
+
+        services.AddSingleton<OutboxEnqueueInterceptor>();
+
+        // CRITICAL: Register the interceptor as an IInterceptor so EF Core picks it up automatically
+        services.AddSingleton<Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor>(sp =>
+            sp.GetRequiredService<OutboxEnqueueInterceptor>());
+    }
+
     public void Validate(IDbContextOptions options) { }
 
     private sealed class ExtensionInfo : DbContextOptionsExtensionInfo

@@ -2,6 +2,7 @@
 using Messaging.OutboxInbox.Configurations;
 using Messaging.OutboxInbox.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Messaging.OutboxInbox;
 
@@ -9,7 +10,6 @@ public abstract class OutboxInboxContext : DbContext
 {
     private readonly bool _includeMessageInbox;
     private readonly bool _includeMessageOutbox;
-    private Action<OutboxRecord>? _outboxEnqueueAction;
 
     protected OutboxInboxContext(DbContextOptions options) : base(options)
     {
@@ -23,65 +23,27 @@ public abstract class OutboxInboxContext : DbContext
         _includeMessageOutbox = true;
     }
 
-    internal void SetOutboxEnqueueAction(Action<OutboxRecord> action)
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        _outboxEnqueueAction = action;
-    }
+        base.OnConfiguring(optionsBuilder);
 
-    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-    {
-        // Capture outbox records that are being added BEFORE saving
-        List<OutboxRecord>? pendingOutboxRecords = null;
-
-        if (_includeMessageOutbox && _outboxEnqueueAction is not null)
+        // If outbox is enabled, register the interceptor
+        if (_includeMessageOutbox)
         {
-            pendingOutboxRecords = ChangeTracker.Entries<OutboxRecord>()
-                .Where(e => e.State == EntityState.Added)
-                .Select(e => e.Entity)
-                .ToList();
-        }
+            // Try to get interceptor from DI if available
+            var serviceProvider = optionsBuilder.Options
+                .FindExtension<Microsoft.EntityFrameworkCore.Infrastructure.CoreOptionsExtension>()
+                ?.ApplicationServiceProvider;
 
-        // Save changes - this commits the transaction
-        var result = await base.SaveChangesAsync(cancellationToken);
-
-        // After successful save, enqueue the messages for background processing
-        if (pendingOutboxRecords is not null && pendingOutboxRecords.Count > 0)
-        {
-            foreach (var record in pendingOutboxRecords)
+            if (serviceProvider != null)
             {
-                _outboxEnqueueAction!(record);
+                var interceptor = serviceProvider.GetService<OutboxEnqueueInterceptor>();
+                if (interceptor != null)
+                {
+                    optionsBuilder.AddInterceptors(interceptor);
+                }
             }
         }
-
-        return result;
-    }
-
-    public override int SaveChanges()
-    {
-        // Capture outbox records that are being added BEFORE saving
-        List<OutboxRecord>? pendingOutboxRecords = null;
-
-        if (_includeMessageOutbox && _outboxEnqueueAction is not null)
-        {
-            pendingOutboxRecords = ChangeTracker.Entries<OutboxRecord>()
-                .Where(e => e.State == EntityState.Added)
-                .Select(e => e.Entity)
-                .ToList();
-        }
-
-        // Save changes - this commits the transaction
-        var result = base.SaveChanges();
-
-        // After successful save, enqueue the messages for background processing
-        if (pendingOutboxRecords is not null && pendingOutboxRecords.Count > 0)
-        {
-            foreach (var record in pendingOutboxRecords)
-            {
-                _outboxEnqueueAction!(record);
-            }
-        }
-
-        return result;
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

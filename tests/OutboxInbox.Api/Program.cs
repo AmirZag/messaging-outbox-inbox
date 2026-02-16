@@ -21,13 +21,12 @@ builder.AddRabbitMQClient("rabbitmq");
 builder.AddNpgsqlDbContext<AppDbContext>("appdb",
     configureDbContextOptions: options =>
     {
-        // Enable BOTH outbox and inbox messaging
         options.IncludeOutboxMessaging();
         options.IncludeInboxMessaging();
     });
 
 // Configure with handlers
-builder.AddOutboxAndInboxMessaging<AppDbContext>(config =>
+builder.AddMessagingHandlers<AppDbContext>(config =>
 {
     config.AddSubscriber<ConversionCompletedMessage, ConversionCompletedMessageHandler>();
 });
@@ -40,7 +39,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await dbContext.Database.EnsureDeletedAsync(); // Deletes existing DB
+    //await dbContext.Database.EnsureDeletedAsync(); // Deletes existing DB
     await dbContext.Database.EnsureCreatedAsync(); // Creates fresh schema
 }
 
