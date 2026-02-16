@@ -4,15 +4,38 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<LangVersion>latest</LangVersion>
+
+		<!-- Package Configuration -->
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageId>Messaging.OutboxInbox</PackageId>
 		<Version>1.0.0</Version>
-		<Authors>Your Name</Authors>
-		<Description>Outbox and Inbox pattern implementation for reliable messaging</Description>
+		<Authors>Amirreza Ghasemi</Authors>
+		<Company>Resaa</Company>
+		<Product>Messaging.OutboxInbox</Product>
+		<Description>Reliable messaging library implementing Transactional Outbox and Inbox patterns for distributed systems. Ensures exactly-once message delivery with PostgreSQL and MediatR integration.</Description>
+		<PackageTags>outbox;inbox;messaging;rabbitmq;postgresql;distributed-systems;event-driven;cqrs;mediatr;transactional-outbox</PackageTags>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageProjectUrl>https://github.com/AmirZag/messaging-outbox-inbox</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/AmirZag/messaging-outbox-inbox</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
+		<Copyright>Copyright © 2025</Copyright>
+
+		<!-- Documentation -->
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<NoWarn>$(NoWarn);1591</NoWarn>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="README.md" Pack="true" PackagePath="\" />
+		<None Include="..\..\build\icons\icon.png" Pack="true" PackagePath="\" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<InternalsVisibleTo Include="Messaging.OutboxInbox.AspNetCore" />
 	</ItemGroup>
+
 	<ItemGroup>
 		<PackageReference Include="MediatR" Version="12.4.1" />
 	</ItemGroup>

@@ -14,166 +14,199 @@ namespace Messaging.OutboxInbox.AspNetCore.Extensions;
 
 public static class IHostApplicationBuilderExtensions
 {
-    public static IHostApplicationBuilder AddOutboxMessaging<TContext>(this IHostApplicationBuilder builder)
-        where TContext : DbContext
+    extension(IHostApplicationBuilder builder)
     {
-        // Configure Options
-        builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.Section));
-        builder.Services.Configure<MessagePublisherOptions>(builder.Configuration.GetSection(MessagePublisherOptions.Section));
-
-        // RabbitMQ Connection - Only if not registered by Aspire
-        builder.Services.TryAddSingleton<IConnection>(sp =>
+        public IHostApplicationBuilder AddOutboxMessaging<TContext>()
+            where TContext : DbContext
         {
-            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqOptions>>().Value;
-            var factory = new ConnectionFactory
-            {
-                HostName = options.HostName,
-                Port = options.Port,
-                UserName = options.UserName,
-                Password = options.Password
-            };
+            builder.ConfigureOutboxOptions();
+            builder.AddRabbitMqConnection();
+            builder.AddOutboxQueue();
+            builder.AddOutboxInterceptor();
+            builder.AddOutboxServices<TContext>();
+            builder.AddOutboxHostedService();
 
-            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
-        });
-
-        // Queue (Singleton)
-        builder.Services.AddSingleton<IOutboxMessageQueue, OutboxMessageQueue>();
-
-        // THE MAGIC: Register the interceptor (Singleton because it's stateless except for queue injection)
-        builder.Services.AddSingleton<OutboxEnqueueInterceptor>();
-
-        // Core Services (Scoped)
-        builder.Services.AddScoped<IOutboxMessagesService, OutboxMessagesService>();
-        builder.Services.AddScoped<RabbitMqPublisher>();
-        builder.Services.AddScoped<IMessagePublisher, MessagePublisher>();
-
-        // Map base types
-        builder.Services.TryAddScoped<DbContext>(sp => sp.GetRequiredService<TContext>());
-
-        // Hosted Service
-        builder.Services.AddHostedService<OutboxHostedService>();
-
-        return builder;
-    }
-
-    public static IHostApplicationBuilder AddInboxMessaging<TContext>(this IHostApplicationBuilder builder)
-        where TContext : DbContext
-    {
-        // Configure Options
-        builder.Services.TryConfigureOptions<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.Section));
-        builder.Services.Configure<MessageSubscriberOptions>(builder.Configuration.GetSection(MessageSubscriberOptions.Section));
-
-        // RabbitMQ Connection
-        builder.Services.TryAddSingleton<IConnection>(sp =>
-        {
-            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqOptions>>().Value;
-            var factory = new ConnectionFactory
-            {
-                HostName = options.HostName,
-                Port = options.Port,
-                UserName = options.UserName,
-                Password = options.Password
-            };
-
-            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
-        });
-
-        // Queue (Singleton)
-        builder.Services.AddSingleton<IInboxMessageQueue, InboxMessageQueue>();
-
-        // Core Services (Scoped)
-        builder.Services.TryAddScoped<DbContext, TContext>();
-        builder.Services.AddScoped<IInboxMessagesService, InboxMessagesService>();
-
-        // MediatR
-        builder.Services.AddMediatR(cfg =>
-            cfg.RegisterServicesFromAssembly(typeof(TContext).Assembly));
-
-        // Hosted Services
-        builder.Services.AddHostedService<InboxHostedService>();
-        builder.Services.AddHostedService<RabbitMqSubscriber>();
-
-        return builder;
-    }
-
-    public static IHostApplicationBuilder AddMessagingHandlers<TContext>(
-        this IHostApplicationBuilder builder,
-        Action<MessagingConfiguration>? configure = null)
-        where TContext : DbContext
-    {
-        var config = new MessagingConfiguration();
-        configure?.Invoke(config);
-
-        // Configure shared options
-        builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.Section));
-        builder.Services.Configure<MessagePublisherOptions>(builder.Configuration.GetSection(MessagePublisherOptions.Section));
-        builder.Services.Configure<MessageSubscriberOptions>(builder.Configuration.GetSection(MessageSubscriberOptions.Section));
-
-        // RabbitMQ Connection
-        builder.Services.TryAddSingleton<IConnection>(sp =>
-        {
-            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqOptions>>().Value;
-            var factory = new ConnectionFactory
-            {
-                HostName = options.HostName,
-                Port = options.Port,
-                UserName = options.UserName,
-                Password = options.Password
-            };
-
-            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
-        });
-
-        // Queues (Singleton)
-        builder.Services.AddSingleton<IOutboxMessageQueue, OutboxMessageQueue>();
-        builder.Services.AddSingleton<IInboxMessageQueue, InboxMessageQueue>();
-
-        // THE MAGIC: Register the interceptor
-        builder.Services.AddSingleton<OutboxEnqueueInterceptor>();
-
-        // Map base types
-        builder.Services.TryAddScoped<DbContext>(sp => sp.GetRequiredService<TContext>());
-
-        // Core Services (Scoped)
-        builder.Services.AddScoped<IOutboxMessagesService, OutboxMessagesService>();
-        builder.Services.AddScoped<IInboxMessagesService, InboxMessagesService>();
-        builder.Services.AddScoped<IMessagePublisher, MessagePublisher>();
-        builder.Services.AddScoped<RabbitMqPublisher>();
-
-        // MediatR with assembly scanning
-        builder.Services.AddMediatR(cfg =>
-            cfg.RegisterServicesFromAssembly(typeof(TContext).Assembly));
-
-        // Hosted Services
-        builder.Services.AddHostedService<OutboxHostedService>();
-        builder.Services.AddHostedService<InboxHostedService>();
-        builder.Services.AddHostedService<RabbitMqSubscriber>();
-
-        // Register message handlers - auto-discover
-        builder.Services.Scan(scan => scan
-            .FromAssembliesOf(typeof(TContext))
-            .AddClasses(classes => classes.AssignableTo(typeof(IMessageHandler<>)))
-            .AsSelfWithInterfaces()
-            .WithScopedLifetime());
-
-        // Also register explicitly configured handlers (different assemblies)
-        foreach (var (_, handlerType) in config.MessageHandlers)
-        {
-            builder.Services.TryAddScoped(handlerType);
+            return builder;
         }
 
-        return builder;
+        public IHostApplicationBuilder AddInboxMessaging<TContext>()
+            where TContext : DbContext
+        {
+            builder.ConfigureInboxOptions();
+            builder.AddRabbitMqConnection();
+            builder.AddInboxQueue();
+            builder.AddInboxServices<TContext>();
+            builder.AddMediatRForInbox<TContext>();
+            builder.AddInboxHostedServices();
+
+            return builder;
+        }
+
+        public IHostApplicationBuilder AddMessagingHandlers<TContext>(Action<MessagingConfiguration>? configure = null)
+            where TContext : DbContext
+        {
+            var config = new MessagingConfiguration();
+            configure?.Invoke(config);
+
+            builder.ConfigureAllMessagingOptions();
+            builder.AddRabbitMqConnection();
+            builder.AddMessagingQueues();
+            builder.AddOutboxInterceptor();
+            builder.AddAllMessagingServices<TContext>();
+            builder.AddMediatRWithBehaviors<TContext>();
+            builder.AddAllHostedServices();
+            builder.ScanAndRegisterHandlers<TContext>(config);
+
+            return builder;
+        }
+
+        // Private composition methods
+        private void ConfigureOutboxOptions()
+        {
+            builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.Section));
+            builder.Services.Configure<MessagePublisherOptions>(builder.Configuration.GetSection(MessagePublisherOptions.Section));
+        }
+
+        private void ConfigureInboxOptions()
+        {
+            builder.Services.TryConfigureOptions<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.Section));
+            builder.Services.Configure<MessageSubscriberOptions>(builder.Configuration.GetSection(MessageSubscriberOptions.Section));
+        }
+
+        private void ConfigureAllMessagingOptions()
+        {
+            builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection(RabbitMqOptions.Section));
+            builder.Services.Configure<MessagePublisherOptions>(builder.Configuration.GetSection(MessagePublisherOptions.Section));
+            builder.Services.Configure<MessageSubscriberOptions>(builder.Configuration.GetSection(MessageSubscriberOptions.Section));
+        }
+
+        private void AddRabbitMqConnection()
+        {
+            builder.Services.TryAddSingleton<IConnection>(sp =>
+            {
+                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqOptions>>().Value;
+                
+                if (string.IsNullOrEmpty(options.HostName))
+                    throw new InvalidOperationException("RabbitMQ:HostName is required in configuration");
+
+                var factory = new ConnectionFactory
+                {
+                    HostName = options.HostName,
+                    Port = options.Port,
+                    UserName = options.UserName,
+                    Password = options.Password
+                };
+
+                return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+        });
+        }
+
+        private void AddOutboxQueue()
+        {
+            builder.Services.AddSingleton<IOutboxMessageQueue, OutboxMessageQueue>();
+        }
+
+        private void AddInboxQueue()
+        {
+            builder.Services.AddSingleton<IInboxMessageQueue, InboxMessageQueue>();
+        }
+
+        private void AddMessagingQueues()
+        {
+            builder.Services.AddSingleton<IOutboxMessageQueue, OutboxMessageQueue>();
+            builder.Services.AddSingleton<IInboxMessageQueue, InboxMessageQueue>();
+        }
+
+        private void AddOutboxInterceptor()
+        {
+            builder.Services.AddSingleton<OutboxEnqueueInterceptor>();
+        }
+
+        private void AddOutboxServices<TContext>()
+            where TContext : DbContext
+        {
+            builder.Services.AddScoped<IOutboxMessagesService, OutboxMessagesService>();
+            builder.Services.AddScoped<RabbitMqPublisher>();
+            builder.Services.AddScoped<IMessagePublisher, MessagePublisher>();
+            builder.Services.TryAddScoped<DbContext>(sp => sp.GetRequiredService<TContext>());
+        }
+
+        private void AddInboxServices<TContext>()
+            where TContext : DbContext
+        {
+            builder.Services.TryAddScoped<DbContext, TContext>();
+            builder.Services.AddScoped<IInboxMessagesService, InboxMessagesService>();
+        }
+
+        private void AddAllMessagingServices<TContext>()
+            where TContext : DbContext
+        {
+            builder.Services.TryAddScoped<DbContext>(sp => sp.GetRequiredService<TContext>());
+            builder.Services.AddScoped<IOutboxMessagesService, OutboxMessagesService>();
+            builder.Services.AddScoped<IInboxMessagesService, InboxMessagesService>();
+            builder.Services.AddScoped<IMessagePublisher, MessagePublisher>();
+            builder.Services.AddScoped<RabbitMqPublisher>();
+        }
+
+        private void AddMediatRForInbox<TContext>()
+            where TContext : DbContext
+        {
+            builder.Services.AddMediatR(cfg =>
+                cfg.RegisterServicesFromAssembly(typeof(TContext).Assembly));
+        }
+
+        private void AddMediatRWithBehaviors<TContext>()
+            where TContext : DbContext
+        {
+            builder.Services.AddMediatR(cfg =>
+                cfg.RegisterServicesFromAssembly(typeof(TContext).Assembly));
+        }
+
+        private void AddOutboxHostedService()
+        {
+            builder.Services.AddHostedService<OutboxHostedService>();
+        }
+
+        private void AddInboxHostedServices()
+        {
+            builder.Services.AddHostedService<InboxHostedService>();
+            builder.Services.AddHostedService<RabbitMqSubscriber>();
+        }
+
+        private void AddAllHostedServices()
+        {
+            builder.Services.AddHostedService<OutboxHostedService>();
+            builder.Services.AddHostedService<InboxHostedService>();
+            builder.Services.AddHostedService<RabbitMqSubscriber>();
+        }
+
+        private void ScanAndRegisterHandlers<TContext>(MessagingConfiguration config)
+            where TContext : DbContext
+        {
+            builder.Services.Scan(scan => scan
+                .FromAssembliesOf(typeof(TContext))
+                .AddClasses(classes => classes.AssignableTo(typeof(IMessageHandler<>)))
+                .AsSelfWithInterfaces()
+                .WithScopedLifetime());
+
+            foreach (var (_, handlerType) in config.MessageHandlers)
+            {
+                builder.Services.TryAddScoped(handlerType);
+            }
+        }
     }
 
-    private static IServiceCollection TryConfigureOptions<TOptions>(
-        this IServiceCollection services,
-        Microsoft.Extensions.Configuration.IConfigurationSection section)
-        where TOptions : class
+    extension(IServiceCollection services)
     {
-        if (!services.Any(x => x.ServiceType == typeof(Microsoft.Extensions.Options.IOptions<TOptions>)))
+        internal IServiceCollection TryConfigureOptions<TOptions>(
+            Microsoft.Extensions.Configuration.IConfigurationSection section)
+            where TOptions : class
         {
-            services.Configure<TOptions>(section);
+            if (!services.Any(x => x.ServiceType == typeof(Microsoft.Extensions.Options.IOptions<TOptions>)))
+            {
+                services.Configure<TOptions>(section);
+            }
+            return services;
         }
-        return services;
     }
 }
