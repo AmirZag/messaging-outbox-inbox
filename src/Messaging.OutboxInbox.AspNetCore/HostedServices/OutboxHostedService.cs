@@ -92,6 +92,14 @@ internal sealed class OutboxHostedService : BackgroundService
 
         try
         {
+
+            bool isProcessed = await outboxService.IsProcessedAsync(message.Id, cancellationToken);
+            if (isProcessed)
+            {
+                _logger.LogInformation("Outbox message {MessageId} already processed, skipping", message.Id);
+                return;
+            }
+
             await rabbitMqPublisher.PublishAsync(message, cancellationToken);
 
             await outboxService.MarkAsProcessedAsync(message.Id, cancellationToken);

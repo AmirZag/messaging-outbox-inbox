@@ -6,6 +6,8 @@ public interface IInboxMessagesService
 {
     Task<IEnumerable<InboxRecord>> GetUnprocessedListAsync(CancellationToken cancellationToken = default);
 
+    Task<bool> IsProcessedAsync(Guid messageId, CancellationToken cancellationToken = default);
+
     Task<bool> TryInsertAsync<TMessage>(Guid messageId, TMessage message, DateTime occurredAt, CancellationToken cancellationToken = default)
         where TMessage : class;
 

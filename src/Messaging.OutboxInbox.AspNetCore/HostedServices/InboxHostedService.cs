@@ -94,15 +94,19 @@ internal sealed class InboxHostedService : BackgroundService
 
         try
         {
-            Type? messageType = Type.GetType(message.Type);
-            if (messageType is null)
-                throw new InvalidOperationException($"Type not found: {message.Type}");
+            bool isProcessed = await inboxService.IsProcessedAsync(message.Id, cancellationToken);
+            if (isProcessed)
+            {
+                _logger.LogInformation("Inbox message {MessageId} already processed, skipping", message.Id);
+                return;
+            }
 
-            object? deserializedMessage = JsonSerializer.Deserialize(message.Content, messageType);
-            if (deserializedMessage is null)
-                throw new InvalidOperationException($"Failed to deserialize message {message.Id}");
+            Type? messageType = Type.GetType(message.Type) ?? throw new InvalidOperationException($"Type not found: {message.Type}");
+
+            object? deserializedMessage = JsonSerializer.Deserialize(message.Content, messageType) ?? throw new InvalidOperationException($"Failed to deserialize message {message.Id}");
 
             await mediator.Send(deserializedMessage, cancellationToken);
+
             await inboxService.MarkAsProcessedAsync(message.Id, cancellationToken);
 
             _logger.LogInformation("Processed inbox message {MessageId}", message.Id);

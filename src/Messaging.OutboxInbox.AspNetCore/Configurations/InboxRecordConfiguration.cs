@@ -11,6 +11,9 @@ public class InboxRecordConfiguration : IEntityTypeConfiguration<InboxRecord>
         builder.ToTable("InboxRecords");
         builder.HasKey(x => x.Id);
 
+        builder.HasIndex(x => x.Id)
+        .IsUnique();
+
         builder.Property(o => o.Type)
             .IsRequired()
             .HasMaxLength(2000);

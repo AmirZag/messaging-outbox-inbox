@@ -11,6 +11,9 @@ internal sealed class OutboxRecordConfiguration : IEntityTypeConfiguration<Outbo
         builder.ToTable("OutboxRecords");
         builder.HasKey(x => x.Id);
 
+        builder.HasIndex(x => x.Id)
+            .IsUnique();
+
         builder.Property(o => o.Type)
             .IsRequired()
             .HasMaxLength(2000);

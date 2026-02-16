@@ -18,6 +18,14 @@ internal sealed class MessagePublisher : IMessagePublisher
     {
         ArgumentNullException.ThrowIfNull(message);
 
+        bool exists = await _context.Set<OutboxRecord>()
+            .AnyAsync(x => x.Id == messageId, cancellationToken);
+
+        if (exists)
+        {
+            return;
+        }
+
         var messageType = typeof(TMessage).AssemblyQualifiedName
             ?? throw new InvalidOperationException($"Cannot determine type name for {typeof(TMessage).Name}");
 

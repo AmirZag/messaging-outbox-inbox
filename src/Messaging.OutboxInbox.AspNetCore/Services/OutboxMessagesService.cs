@@ -36,4 +36,12 @@ public sealed class OutboxMessagesService : IOutboxMessagesService
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.Error, error), cancellationToken);
     }
+
+    public async Task<bool> IsProcessedAsync(Guid messageId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Set<OutboxRecord>()
+            .Where(x => x.Id == messageId)
+            .Select(x => x.ProcessedAt != null)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 }

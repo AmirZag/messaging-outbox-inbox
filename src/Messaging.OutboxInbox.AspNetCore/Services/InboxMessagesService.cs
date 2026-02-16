@@ -35,26 +35,26 @@ public sealed class InboxMessagesService : IInboxMessagesService
 
     public async Task<bool> TryInsertAsync(Guid messageId, string messageType, string content, DateTime occurredAt, CancellationToken cancellationToken = default)
     {
-        bool exists = await _context.Set<InboxRecord>()
-            .AnyAsync(x => x.Id == messageId, cancellationToken);
-
-        if (exists)
+        try
         {
+            var inboxRecord = new InboxRecord
+            {
+                Id = messageId,
+                Type = messageType,
+                Content = content,
+                OccurredAt = occurredAt
+            };
+
+            _context.Set<InboxRecord>().Add(inboxRecord);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return true;
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            // Message already exists - this is OK (idempotent)
             return false;
         }
-
-        var inboxRecord = new InboxRecord
-        {
-            Id = messageId,
-            Type = messageType,
-            Content = content,
-            OccurredAt = occurredAt
-        };
-
-        _context.Set<InboxRecord>().Add(inboxRecord);
-        await _context.SaveChangesAsync(cancellationToken);
-
-        return true;
     }
 
     public async Task MarkAsProcessedAsync(Guid messageId, CancellationToken cancellationToken = default)
@@ -78,5 +78,20 @@ public sealed class InboxMessagesService : IInboxMessagesService
         await _context.Set<InboxRecord>()
             .Where(x => x.Id == messageId)
             .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    {
+        // PostgreSQL unique constraint violation code
+        return ex.InnerException?.Message?.Contains("23505") == true ||
+               ex.InnerException?.Message?.Contains("duplicate key") == true;
+    }
+
+    public async Task<bool> IsProcessedAsync(Guid messageId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Set<InboxRecord>()
+            .Where(x => x.Id == messageId)
+            .Select(x => x.ProcessedAt != null)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 }
