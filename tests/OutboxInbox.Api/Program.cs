@@ -17,7 +17,32 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.AddRabbitMQClient("rabbitmq");
 
-// Add PostgreSQL with Aspire
+
+////-- Only Outbox ---
+//builder.AddNpgsqlDbContext<AppDbContext>("appdb",
+//    configureDbContextOptions: options =>
+//    {
+//        options.IncludeOutboxMessaging(); // Only outbox
+//    });
+
+//// This registers ONLY outbox services
+//builder.AddMessagingHandlers<AppDbContext>();
+//// No handlers scanned, no inbox services
+
+////---- Only Inbox -----
+//builder.AddNpgsqlDbContext<AppDbContext>("appdb",
+//    configureDbContextOptions: options =>
+//    {
+//        options.IncludeInboxMessaging(); //
+//    });
+
+//// This registers ONLY inbox services + handlers
+//builder.AddMessagingHandlers<AppDbContext>(config =>
+//{
+//    config.AddSubscriber<ConversionCompletedMessage, ConversionCompletedMessageHandler>();
+//});
+
+////------Outbox and Inbox --------
 builder.AddNpgsqlDbContext<AppDbContext>("appdb",
     configureDbContextOptions: options =>
     {
@@ -25,11 +50,14 @@ builder.AddNpgsqlDbContext<AppDbContext>("appdb",
         options.IncludeInboxMessaging();
     });
 
-// Configure with handlers
+// This registers BOTH
 builder.AddMessagingHandlers<AppDbContext>(config =>
 {
     config.AddSubscriber<ConversionCompletedMessage, ConversionCompletedMessageHandler>();
 });
+
+
+
 
 
 var app = builder.Build();

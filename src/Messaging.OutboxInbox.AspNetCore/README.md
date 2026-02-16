@@ -38,6 +38,55 @@ builder.AddMessagingHandlers<AppDbContext>(config =>
 });
 ```
 
+```csharp
+------------------------------------------------------------------------------------------
+Scenario 1: Outbox Only
+csharpbuilder.AddNpgsqlDbContext<AppDbContext>("appdb",
+    configureDbContextOptions: options =>
+    {
+        options.IncludeOutboxMessaging(); // Only outbox
+    });
+
+// This registers ONLY outbox services
+builder.AddMessagingHandlers<AppDbContext>();
+// No handlers scanned, no inbox services
+------------------------------------------------------------------------------------------
+Scenario 2: Inbox Only
+csharpbuilder.AddNpgsqlDbContext<AppDbContext>("appdb",
+    configureDbContextOptions: options =>
+    {
+        options.IncludeInboxMessaging(); // Only inbox
+    });
+
+// This registers ONLY inbox services + handlers
+builder.AddMessagingHandlers<AppDbContext>(config =>
+{
+    config.AddSubscriber<ConversionCompletedMessage, ConversionCompletedMessageHandler>();
+});
+
+------------------------------------------------------------------------------------------
+Scenario 3: Both
+csharpbuilder.AddNpgsqlDbContext<AppDbContext>("appdb",
+    configureDbContextOptions: options =>
+    {
+        options.IncludeOutboxMessaging();
+        options.IncludeInboxMessaging();
+    });
+
+// This registers BOTH
+builder.AddMessagingHandlers<AppDbContext>(config =>
+{
+    config.AddSubscriber<ConversionCompletedMessage, ConversionCompletedMessageHandler>();
+});
+
+------------------------------------------------------------------------------------------
+Scenario 4: Error - Nothing Enabled
+csharpbuilder.AddNpgsqlDbContext<AppDbContext>("appdb");
+
+builder.AddMessagingHandlers<AppDbContext>();
+// Throws: "No messaging features enabled. Please add..."
+------------------------------------------------------------------------------------------
+```
 ### Separate Services
 
 **Publisher-only service:**
