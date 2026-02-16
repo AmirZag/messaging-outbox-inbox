@@ -39,7 +39,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    //await dbContext.Database.EnsureDeletedAsync(); // Deletes existing DB
+    await dbContext.Database.EnsureDeletedAsync(); // Deletes existing DB
     await dbContext.Database.EnsureCreatedAsync(); // Creates fresh schema
 }
 
