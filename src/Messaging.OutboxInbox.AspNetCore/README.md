@@ -1,105 +1,93 @@
 # Messaging.OutboxInbox.AspNetCore
 
-ASP.NET Core integration package for Messaging.OutboxInbox with RabbitMQ support and background processing.
+ASP.NET Core integration for the Transactional Outbox & Inbox patterns — wiring up EF Core, RabbitMQ, background hosted services, and automatic message processing.
 
-## What's Included
+[![NuGet](https://img.shields.io/nuget/v/Messaging.OutboxInbox.AspNetCore)](https://www.nuget.org/packages/Messaging.OutboxInbox.AspNetCore)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![.NET](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/download)
 
-- 🚀 **Background Hosted Services** - Automatic message processing
-- 🐰 **RabbitMQ Integration** - Publisher and subscriber implementations
-- ⚙️ **Configuration Extensions** - Simple builder pattern setup
-- 📊 **Structured Logging** - Production-ready logging with EventIds
-- 🔧 **EF Core Interceptors** - Automatic outbox message queuing
+> **Solution Architect:** Reza Noei · **Implementation:** Amirreza Ghasemi
+
+---
+
+## Overview
+
+This package builds on top of [`Messaging.OutboxInbox`](https://www.nuget.org/packages/Messaging.OutboxInbox) to provide everything needed to run the Outbox/Inbox pattern in a real ASP.NET Core application:
+
+- **EF Core model customization** — automatically adds `OutboxRecords` and `InboxRecords` tables to your existing `DbContext`
+- **EF Core interceptor** — captures saved `OutboxRecord` entries and enqueues them immediately after `SaveChanges`
+- **RabbitMQ publisher** — reliably publishes outbox messages to a configured exchange
+- **RabbitMQ subscriber** — consumes messages from a queue and writes them to the inbox idempotently
+- **Background hosted services** — `OutboxHostedService` and `InboxHostedService` process messages continuously
+- **Startup recovery** — unprocessed records are reloaded from the database on startup after a crash
+
+---
 
 ## Installation
+
 ```bash
 dotnet add package Messaging.OutboxInbox.AspNetCore
 ```
 
-This package automatically includes `Messaging.OutboxInbox` as a dependency.
+---
 
-## Configuration
+## Setup
 
-### Minimal Setup
+### 1. Configure Your DbContext
+
+Extend `OutboxInboxContext` (recommended — handles everything automatically):
+
 ```csharp
-builder.AddRabbitMQClient("rabbitmq");
-
-// Add PostgreSQL with Aspire
-builder.AddNpgsqlDbContext<AppDbContext>("appdb",
-    configureDbContextOptions: options =>
-    {
-        options.IncludeOutboxMessaging();
-        options.IncludeInboxMessaging();
-    });
-
-// Configure with handlers
-builder.AddMessagingHandlers<AppDbContext>(config =>
+public class AppDbContext : OutboxInboxContext
 {
-    config.AddSubscriber<ConversionCreatedEvent, ConversionCreatedEventHandler>();
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    public DbSet<Order> Orders => Set<Order>();
+}
+```
+
+Or use a plain `DbContext` with the EF Core extension methods:
+
+```csharp
+builder.Services.AddDbContext<AppDbContext>(options =>
+{
+    options.UseNpgsql(connectionString)
+           .IncludeOutboxMessaging()   // registers OutboxRecords + interceptor
+           .IncludeInboxMessaging();   // registers InboxRecords
 });
 ```
 
+Use them independently if your service only publishes or only consumes:
+
 ```csharp
-------------------------------------------------------------------------------------------
-Scenario 1: Outbox Only
-csharpbuilder.AddNpgsqlDbContext<AppDbContext>("appdb",
-    configureDbContextOptions: options =>
-    {
-        options.IncludeOutboxMessaging(); // Only outbox
-    });
+// Publishing service only
+options.UseNpgsql(conn).IncludeOutboxMessaging();
 
-// This registers ONLY outbox services
-builder.AddMessagingHandlers<AppDbContext>();
-// No handlers scanned, no inbox services
-------------------------------------------------------------------------------------------
-Scenario 2: Inbox Only
-csharpbuilder.AddNpgsqlDbContext<AppDbContext>("appdb",
-    configureDbContextOptions: options =>
-    {
-        options.IncludeInboxMessaging(); // Only inbox
-    });
+// Consuming service only
+options.UseNpgsql(conn).IncludeInboxMessaging();
+```
 
-// This registers ONLY inbox services + handlers
+### 2. Register Messaging Services
+
+```csharp
+// Recommended: auto-detects Outbox/Inbox from DbContext config and wires everything
 builder.AddMessagingHandlers<AppDbContext>(config =>
 {
-    config.AddSubscriber<ConversionCompletedMessage, ConversionCompletedMessageHandler>();
+    config.AddSubscriber<OrderCreatedMessage, OrderCreatedHandler>();
 });
-
-------------------------------------------------------------------------------------------
-Scenario 3: Both
-csharpbuilder.AddNpgsqlDbContext<AppDbContext>("appdb",
-    configureDbContextOptions: options =>
-    {
-        options.IncludeOutboxMessaging();
-        options.IncludeInboxMessaging();
-    });
-
-// This registers BOTH
-builder.AddMessagingHandlers<AppDbContext>(config =>
-{
-    config.AddSubscriber<ConversionCompletedMessage, ConversionCompletedMessageHandler>();
-});
-
-------------------------------------------------------------------------------------------
-Scenario 4: Error - Nothing Enabled
-csharpbuilder.AddNpgsqlDbContext<AppDbContext>("appdb");
-
-builder.AddMessagingHandlers<AppDbContext>();
-// Throws: "No messaging features enabled. Please add..."
-------------------------------------------------------------------------------------------
 ```
-### Separate Services
 
-**Publisher-only service:**
+Or register each side independently:
+
 ```csharp
-builder.AddOutboxMessaging();
+builder.AddOutboxMessaging<AppDbContext>();   // outbox + RabbitMQ publisher + hosted service
+builder.AddInboxMessaging<AppDbContext>();    // inbox + RabbitMQ subscriber + hosted service
 ```
 
-**Consumer-only service:**
-```csharp
-builder.AddInboxMessaging();
-```
+### 3. Configuration
 
-### appsettings.json
+Add the following to `appsettings.json`:
+
 ```json
 {
   "RabbitMQ": {
@@ -110,124 +98,137 @@ builder.AddInboxMessaging();
   },
   "MessagePublisher": {
     "ExchangeName": "messaging.events",
-    "RoutingKey": "events"
+    "RoutingKey": "order.events"
   },
   "MessageSubscriber": {
     "ExchangeName": "messaging.events",
-    "QueueName": "my-service.inbox.queue",
-    "RoutingKey": "events",
+    "QueueName": "order.processing.queue",
+    "RoutingKey": "order.events",
     "PrefetchCount": 10
-  },
-  "Logging": {
-    "LogLevel": {
-      "Messaging.OutboxInbox": "Information"
-    }
   }
 }
 ```
 
-## Components
+### 4. Apply Migrations
 
-### Hosted Services
-
-- **OutboxHostedService** - Processes outbox messages and publishes to RabbitMQ
-- **InboxHostedService** - Processes inbox messages via MediatR handlers
-- **RabbitMqSubscriber** - Consumes messages from RabbitMQ
-
-### Queues
-
-- **IOutboxMessageQueue** - In-memory queue for outbox message buffering
-- **IInboxMessageQueue** - In-memory queue for inbox message buffering
-
-### Services
-
-- **IOutboxMessagesService** - Database operations for outbox records
-- **IInboxMessagesService** - Database operations for inbox records
-- **RabbitMqPublisher** - RabbitMQ message publishing
-- **MessagePublisher** - High-level message publishing API
-
-## Database Schema
-
-The package automatically creates two tables:
-
-**OutboxRecords:**
-- `Id` (PK) - Message identifier
-- `Type` - Message type (assembly qualified name)
-- `Content` - JSON serialized message
-- `OccurredAt` - Timestamp
-- `ProcessedAt` - Processing timestamp (null = unprocessed)
-- `Error` - Error message if processing failed
-
-**InboxRecords:**
-- Same structure as OutboxRecords
-
-## Production Considerations
-
-### Logging
-
-Set appropriate log levels:
-```json
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Warning",
-      "Messaging.OutboxInbox": "Information"
-    }
-  }
-}
+```bash
+dotnet ef migrations add AddMessagingTables
+dotnet ef database update
 ```
 
-Debug logs include method entry/exit for troubleshooting.
+---
 
-### Performance Tuning
+## How It Works
 
-**PrefetchCount:** Number of messages RabbitMQ delivers at once
-```json
-{
-  "MessageSubscriber": {
-    "PrefetchCount": 20  // Increase for higher throughput
-  }
-}
+### Outbox Pipeline
+
+```
+Your Code                    EF Core                  Background
+─────────────────────────────────────────────────────────────────
+publisher.PublishAsync()  →  OutboxRecord added
+db.SaveChangesAsync()     →  OutboxEnqueueInterceptor  →  OutboxMessageQueue
+                                                        →  OutboxHostedService
+                                                        →  RabbitMqPublisher
+                                                        →  RabbitMQ Exchange
 ```
 
-### Environment-Specific Configuration
+1. `IMessagePublisher.PublishAsync` adds an `OutboxRecord` to the EF Core change tracker.
+2. `SaveChangesAsync` persists both your business entity and the outbox record atomically.
+3. `OutboxEnqueueInterceptor` captures the saved record and pushes it to the in-memory `OutboxMessageQueue`.
+4. `OutboxHostedService` dequeues and publishes to RabbitMQ, then marks the record as processed.
 
-Use different exchange names per environment:
-```json
-{
-  "MessagePublisher": {
-    "ExchangeName": "messaging.events.production"
-  }
-}
+### Inbox Pipeline
+
+```
+RabbitMQ Queue               Background                  Your Handler
+─────────────────────────────────────────────────────────────────────
+Message arrives           →  RabbitMqSubscriber
+                          →  TryInsertAsync (idempotent)
+                          →  InboxMessageQueue
+                          →  InboxHostedService
+                          →  MediatR.Send()             →  IMessageHandler<T>
 ```
 
-## Monitoring
+1. `RabbitMqSubscriber` receives the message and writes an `InboxRecord` to the database — duplicate messages are silently ignored via a unique constraint.
+2. The record is pushed to the in-memory `InboxMessageQueue`.
+3. `InboxHostedService` dequeues and dispatches via MediatR to your `IMessageHandler<T>`.
+4. The record is marked as processed.
 
-All operations are logged with structured EventIds:
+### Startup Recovery
 
-- **1xxx** - Outbox operations
-- **2xxx** - Inbox operations  
-- **3xxx** - RabbitMQ operations
-- **4xxx** - Service lifecycle
+On startup, both hosted services query the database for records where `ProcessedAt IS NULL` and re-enqueue them. This ensures no messages are lost after an application crash.
 
-Query logs by EventId for metrics and monitoring.
+---
 
-## Requirements
+## Configuration Reference
 
-- ASP.NET Core 10.0+
-- PostgreSQL with JSONB support
-- RabbitMQ 7.0+
-- Entity Framework Core 10.0+
+### `RabbitMQ` section
+
+| Key | Default | Description |
+|---|---|---|
+| `HostName` | `localhost` | RabbitMQ server hostname |
+| `Port` | `5672` | RabbitMQ port |
+| `UserName` | `guest` | Username |
+| `Password` | `guest` | Password |
+
+### `MessagePublisher` section
+
+| Key | Default | Description |
+|---|---|---|
+| `ExchangeName` | `messaging.events` | Exchange to publish to |
+| `RoutingKey` | `events` | Routing key for published messages |
+
+### `MessageSubscriber` section
+
+| Key | Default | Description |
+|---|---|---|
+| `ExchangeName` | `messaging.events` | Exchange to bind to |
+| `QueueName` | `inbox.queue` | Queue to consume from |
+| `RoutingKey` | `events` | Binding routing key |
+| `PrefetchCount` | `10` | RabbitMQ QoS prefetch count |
+
+---
+
+## Database Tables
+
+Both tables are added automatically when you call `.IncludeOutboxMessaging()` / `.IncludeInboxMessaging()`.
+
+**`OutboxRecords`** and **`InboxRecords`** share the same schema:
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | `uuid` | Message ID — matches your business entity ID |
+| `Type` | `varchar(2000)` | Assembly-qualified type name |
+| `Content` | `jsonb` | JSON-serialized message payload |
+| `OccurredAt` | `timestamp` | Record creation time (UTC) |
+| `ProcessedAt` | `timestamp?` | Set when successfully processed |
+| `Error` | `varchar(2000)?` | Set when processing fails |
+
+A partial index on `"ProcessedAt" IS NULL` is created on both tables for efficient polling queries.
+
+---
 
 ## Dependencies
 
-- `Messaging.OutboxInbox` (core library)
-- `Microsoft.Extensions.Hosting.Abstractions`
-- `Npgsql.EntityFrameworkCore.PostgreSQL`
-- `RabbitMQ.Client`
-- `Scrutor` (for decorator pattern)
-- `MediatR` (for handler execution)
+| Package | Version |
+|---|---|
+| `Messaging.OutboxInbox` | 1.0.0 |
+| `Microsoft.Extensions.Hosting.Abstractions` | 10.0.3 |
+| `Microsoft.Extensions.Options.ConfigurationExtensions` | 10.0.3 |
+| `Npgsql.EntityFrameworkCore.PostgreSQL` | 10.0.0 |
+| `RabbitMQ.Client` | 7.2.0 |
+| `Scrutor` | 7.0.0 |
+
+---
+
+## Related Packages
+
+| Package | Purpose |
+|---|---|
+| [`Messaging.OutboxInbox`](https://www.nuget.org/packages/Messaging.OutboxInbox) | Core abstractions — `IMessage`, `IMessageHandler`, `IMessagePublisher` |
+
+---
 
 ## License
 
-MIT
+[MIT](https://opensource.org/licenses/MIT) © 2025 Resaa

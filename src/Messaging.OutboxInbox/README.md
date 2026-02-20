@@ -1,204 +1,151 @@
 # Messaging.OutboxInbox
 
-A reliable messaging library implementing the Transactional Outbox and Inbox patterns for distributed systems.
+Core abstractions for reliable distributed messaging using the **Transactional Outbox & Inbox** patterns in .NET.
 
-## Features
+[![NuGet](https://img.shields.io/nuget/v/Messaging.OutboxInbox)](https://www.nuget.org/packages/Messaging.OutboxInbox)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![.NET](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/download)
 
-- 🔒 **Transactional Outbox Pattern** - Ensures messages are published atomically with your business transactions
-- 📥 **Inbox Pattern** - Guarantees exactly-once message processing with idempotency
-- 🎯 **MediatR Integration** - Seamless handler-based message processing
-- 🔄 **Event Sourcing Ready** - Perfect for CQRS and event-driven architectures
+> **Solution Architect:** Reza Noei · **Implementation:** Amirreza Ghasemi
+
+---
+
+## Overview
+
+This package provides the foundational contracts for the Outbox/Inbox messaging pattern. It contains no infrastructure dependencies — just the interfaces your domain and application code depends on.
+
+For the full ASP.NET Core integration (EF Core, RabbitMQ, hosted services), see [`Messaging.OutboxInbox.AspNetCore`](https://www.nuget.org/packages/Messaging.OutboxInbox.AspNetCore).
+
+---
 
 ## Installation
+
 ```bash
 dotnet add package Messaging.OutboxInbox
-dotnet add package Messaging.OutboxInbox.AspNetCore
 ```
 
-## Quick Start
+---
 
-### 1. Define Your Messages
+## What's Included
+
+### `IMessage`
+
+Base interface for all messages. Inherits from MediatR's `IRequest`, so every message is also dispatchable through the MediatR pipeline.
+
 ```csharp
-using Messaging.OutboxInbox;
+public interface IMessage : IRequest { }
+```
 
-public record ConversionCreatedEvent : IMessage
+### `IMessageHandler<TMessage>`
+
+Base interface for message handlers. Implement this to handle a specific message type on the consumer side.
+
+```csharp
+public interface IMessageHandler<in TMessage> : IRequestHandler<TMessage>
+    where TMessage : IMessage { }
+```
+
+### `IMessagePublisher`
+
+The entry point for publishing messages using the Outbox pattern. Call `PublishAsync` within the same scope as your `SaveChangesAsync` — the message is written atomically with your business data.
+
+```csharp
+public interface IMessagePublisher
 {
-    public Guid ConversionId { get; init; }
-    public int TotalRecords { get; init; }
+    Task PublishAsync<TMessage>(TMessage message, Guid messageId, CancellationToken cancellationToken = default)
+        where TMessage : IMessage;
 }
 ```
 
-### 2. Configure Your DbContext
+> The `messageId` parameter is intentional — it ties the outbox record to your business entity's ID, enabling idempotent deduplication end-to-end.
+
+---
+
+## Usage
+
+### 1. Define a Message
+
 ```csharp
-builder.AddRabbitMQClient("rabbitmq");
+using Messaging.OutboxInbox;
 
-// Add PostgreSQL with Aspire
-builder.AddNpgsqlDbContext<AppDbContext>("appdb",
-    configureDbContextOptions: options =>
-    {
-        options.IncludeOutboxMessaging();
-        options.IncludeInboxMessaging();
-    });
-
-// Configure with handlers
-builder.AddMessagingHandlers<AppDbContext>(config =>
+public sealed class OrderCreatedMessage : IMessage
 {
-    config.AddSubscriber<ConversionCreatedEvent, ConversionCreatedEventHandler>();
-});
+    public Guid OrderId { get; init; }
+    public string CustomerName { get; init; } = string.Empty;
+    public decimal TotalAmount { get; init; }
+}
 ```
 
-### 3. Publish Messages (Outbox)
+### 2. Implement a Handler
+
 ```csharp
-public class ConversionService
+using Messaging.OutboxInbox;
+
+public sealed class OrderCreatedHandler : IMessageHandler<OrderCreatedMessage>
 {
-    private readonly MyDbContext _context;
-    private readonly IMessagePublisher _publisher;
-    
-    public async Task CreateConversionAsync(CreateConversionRequest request)
+    private readonly AppDbContext _db;
+    private readonly ILogger<OrderCreatedHandler> _logger;
+
+    public OrderCreatedHandler(AppDbContext db, ILogger<OrderCreatedHandler> logger)
     {
-        var conversion = new Conversion { /* ... */ };
-        _context.Conversions.Add(conversion);
-        
-        // Publish event atomically with the conversion creation
-        await _publisher.PublishAsync(
-            new ConversionCreatedEvent 
-            { 
-                ConversionId = conversion.Id, 
-                TotalRecords = conversion.TotalRecords 
-            },
-            conversion.Id // Use conversion ID as message ID for idempotency
-        );
-        
-        await _context.SaveChangesAsync(); // Both conversion and outbox record saved in one transaction
+        _db = db;
+        _logger = logger;
+    }
+
+    public async Task Handle(OrderCreatedMessage message, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Handling OrderCreated for {OrderId}", message.OrderId);
+
+        // Your business logic — e.g. send email, create audit log, update read model
+        await _db.SaveChangesAsync(cancellationToken);
     }
 }
 ```
 
-### 4. Handle Messages (Inbox)
-```csharp
-using Messaging.OutboxInbox;
+### 3. Publish a Message
 
-public class ConversionCreatedEventHandler : IMessageHandler
+```csharp
+app.MapPost("/orders", async (
+    CreateOrderRequest req,
+    AppDbContext db,
+    IMessagePublisher publisher,
+    CancellationToken ct) =>
 {
-    private readonly ILogger _logger;
-    
-    public async Task Handle(ConversionCreatedEvent message, CancellationToken cancellationToken)
+    var order = new Order { Id = Guid.CreateVersion7(), ... };
+    db.Orders.Add(order);
+
+    // Called before SaveChangesAsync — part of the same transaction
+    await publisher.PublishAsync(new OrderCreatedMessage
     {
-        _logger.LogInformation("Processing Conversion {ConversionId}", message.ConversionId);
-        
-        // Your business logic here
-        // This will only execute once per message (idempotent)
-    }
-}
-```
+        OrderId = order.Id,
+        CustomerName = req.CustomerName,
+        TotalAmount = req.TotalAmount
+    }, order.Id, ct);
 
-### 5. Configure in Program.cs
-```csharp
-var builder = WebApplication.CreateBuilder(args);
+    await db.SaveChangesAsync(ct); // business data + outbox record saved atomically
 
-// Add database
-builder.Services.AddDbContext(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
-
-// Option A: Add only Outbox (for publishers)
-builder.AddOutboxMessaging();
-
-// Option B: Add only Inbox (for consumers)
-builder.AddInboxMessaging();
-
-// Option C: Add both Outbox + Inbox + Handlers (full setup)
-builder.AddMessagingHandlers();
-```
-
-### 6. Configure appsettings.json
-```json
-{
-  "ConnectionStrings": {
-    "Default": "Host=localhost;Database=mydb;Username=postgres;Password=postgres"
-  },
-  "RabbitMQ": {
-    "HostName": "localhost",
-    "Port": 5672,
-    "UserName": "guest",
-    "Password": "guest"
-  },
-  "MessagePublisher": {
-    "ExchangeName": "messaging.events",
-    "RoutingKey": "events"
-  },
-  "MessageSubscriber": {
-    "ExchangeName": "messaging.events",
-    "QueueName": "my-service.queue",
-    "RoutingKey": "events",
-    "PrefetchCount": 10
-  }
-}
-```
-
-### 7. Run Migrations
-```bash
-dotnet ef migrations add AddOutboxInbox
-dotnet ef database update
-```
-
-## How It Works
-
-### Outbox Pattern
-1. Your code publishes a message via `IMessagePublisher`
-2. Message is saved to `OutboxRecords` table in the **same transaction** as your business data
-3. Background service reads unprocessed outbox records
-4. Messages are published to RabbitMQ
-5. Successfully published messages are marked as processed
-
-### Inbox Pattern
-1. RabbitMQ delivers message to your service
-2. Message is saved to `InboxRecords` table (with duplicate check)
-3. Background service processes messages via MediatR handlers
-4. Successfully processed messages are marked as processed
-5. Duplicate messages are automatically ignored (idempotency)
-
-## Key Guarantees
-
-✅ **Exactly-once publishing** - Messages published atomically with your transaction  
-✅ **Exactly-once processing** - Duplicate messages automatically deduplicated  
-✅ **Ordering** - Messages processed in order of occurrence  
-✅ **Reliability** - Survives crashes and restarts  
-✅ **Idempotency** - Safe to retry operations
-
-## Advanced Usage
-
-### Cross-Assembly Handlers
-```csharp
-builder.AddMessagingHandlers(config =>
-{
-    config.AddSubscriber();
-    config.AddSubscriber();
+    return Results.Created($"/orders/{order.Id}", order);
 });
 ```
 
-### Separate Publisher and Consumer Services
+---
 
-**Publisher Service:**
-```csharp
-builder.AddOutboxMessaging();
-```
+## Dependencies
 
-**Consumer Service:**
-```csharp
-builder.AddInboxMessaging();
-```
+| Package | Version |
+|---|---|
+| `MediatR` | 12.4.1 |
 
-## Requirements
+---
 
-- .NET 10.0+
-- PostgreSQL (with JSONB support)
-- RabbitMQ
-- Entity Framework Core 10.0+
+## Related Packages
+
+| Package | Purpose |
+|---|---|
+| [`Messaging.OutboxInbox.AspNetCore`](https://www.nuget.org/packages/Messaging.OutboxInbox.AspNetCore) | EF Core, RabbitMQ, background services, DI registration |
+
+---
 
 ## License
 
-MIT
-
-## Support
-
-For issues and questions, please open an issue on GitHub.
+[MIT](https://opensource.org/licenses/MIT) © 2025 Resaa
