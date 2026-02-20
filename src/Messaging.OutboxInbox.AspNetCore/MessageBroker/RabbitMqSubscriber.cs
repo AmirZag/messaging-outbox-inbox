@@ -1,6 +1,7 @@
 ﻿using Messaging.OutboxInbox.AspNetCore.Extensions;
 using Messaging.OutboxInbox.AspNetCore.Options;
 using Messaging.OutboxInbox.AspNetCore.Queues;
+using Messaging.OutboxInbox.Entities;
 using Messaging.OutboxInbox.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -37,53 +38,39 @@ internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Entering {Method}", nameof(StartAsync));
+        _channel = await _connection.CreateChannelAsync(cancellationToken: cancellationToken);
 
-        try
-        {
-            _channel = await _connection.CreateChannelAsync(cancellationToken: cancellationToken);
+        await _channel.ExchangeDeclareAsync(
+            exchange: _options.ExchangeName,
+            type: ExchangeType.Topic,
+            durable: true,
+            cancellationToken: cancellationToken);
 
-            await _channel.ExchangeDeclareAsync(
-                exchange: _options.ExchangeName,
-                type: ExchangeType.Topic,
-                durable: true,
-                cancellationToken: cancellationToken);
+        await _channel.QueueDeclareAsync(
+            queue: _options.QueueName,
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            cancellationToken: cancellationToken);
 
-            await _channel.QueueDeclareAsync(
-                queue: _options.QueueName,
-                durable: true,
-                exclusive: false,
-                autoDelete: false,
-                cancellationToken: cancellationToken);
+        await _channel.QueueBindAsync(
+            queue: _options.QueueName,
+            exchange: _options.ExchangeName,
+            routingKey: _options.RoutingKey,
+            cancellationToken: cancellationToken);
 
-            await _channel.QueueBindAsync(
-                queue: _options.QueueName,
-                exchange: _options.ExchangeName,
-                routingKey: _options.RoutingKey,
-                cancellationToken: cancellationToken);
+        await _channel.BasicQosAsync(0, _options.PrefetchCount, false, cancellationToken);
 
-            await _channel.BasicQosAsync(0, _options.PrefetchCount, false, cancellationToken);
+        var consumer = new AsyncEventingBasicConsumer(_channel);
+        consumer.ReceivedAsync += OnMessageReceivedAsync;
 
-            var consumer = new AsyncEventingBasicConsumer(_channel);
-            consumer.ReceivedAsync += OnMessageReceivedAsync;
+        await _channel.BasicConsumeAsync(
+            queue: _options.QueueName,
+            autoAck: false,
+            consumer: consumer,
+            cancellationToken: cancellationToken);
 
-            await _channel.BasicConsumeAsync(
-                queue: _options.QueueName,
-                autoAck: false,
-                consumer: consumer,
-                cancellationToken: cancellationToken);
-
-            _logger.RabbitMqSubscriberStarted(_options.QueueName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogCritical(ex, "CRITICAL: Failed to start RabbitMQ Subscriber - Queue: {QueueName}", _options.QueueName);
-            throw;
-        }
-        finally
-        {
-            _logger.LogDebug("Exiting {Method}", nameof(StartAsync));
-        }
+        _logger.RabbitMqSubscriberStarted(_options.QueueName);
     }
 
     private async Task OnMessageReceivedAsync(object sender, BasicDeliverEventArgs args)
@@ -102,7 +89,8 @@ internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
 
             if (string.IsNullOrEmpty(args.BasicProperties?.Type))
             {
-                _logger.LogError("Received message without Type - MessageId: {MessageId}, rejecting", args.BasicProperties!.MessageId);
+                _logger.LogError("Received message without Type - MessageId: {MessageId}, rejecting",
+                    args.BasicProperties!.MessageId);
                 await _channel!.BasicNackAsync(args.DeliveryTag, false, false);
                 return;
             }
@@ -110,15 +98,16 @@ internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
             messageId = Guid.Parse(args.BasicProperties.MessageId);
             messageType = args.BasicProperties.Type;
             var content = Encoding.UTF8.GetString(args.Body.ToArray());
-            var occurredAt = DateTimeOffset.FromUnixTimeSeconds(args.BasicProperties.Timestamp.UnixTime).UtcDateTime;
+            var occurredAt = DateTimeOffset.FromUnixTimeSeconds(
+                args.BasicProperties.Timestamp.UnixTime).UtcDateTime;
 
             _logger.InboxMessageReceived(messageId.Value, messageType);
 
             await using var scope = _serviceProvider.CreateAsyncScope();
             var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
 
-            // Try to insert - idempotency handled in service
-            var inserted = await inboxService.TryInsertAsync(messageId.Value, messageType, content, occurredAt);
+            var inserted = await inboxService.TryInsertAsync(
+                messageId.Value, messageType, content, occurredAt);
 
             if (!inserted)
             {
@@ -126,38 +115,37 @@ internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
             }
             else
             {
-                // Get the inserted record and enqueue for processing
-                var messages = await inboxService.GetUnprocessedListAsync();
-                var message = messages.FirstOrDefault(m => m.Id == messageId.Value);
+                // Bug 3 fix: construct the record directly from data we already have
+                // instead of fetching all unprocessed messages from DB
+                var record = new InboxRecord
+                {
+                    Id = messageId.Value,
+                    Type = messageType,
+                    Content = content,
+                    OccurredAt = occurredAt
+                };
 
-                if (message is not null)
-                {
-                    _inboxQueue.Enqueue(message);
-                    _logger.InboxMessageEnqueued(messageId.Value, messageType);
-                }
-                else
-                {
-                    _logger.LogWarning("Failed to retrieve inbox message after insertion - MessageId: {MessageId}", messageId.Value);
-                }
+                _inboxQueue.Enqueue(record);
+                _logger.InboxMessageEnqueued(messageId.Value, messageType);
             }
 
             await _channel!.BasicAckAsync(args.DeliveryTag, false);
-            _logger.LogDebug("Acknowledged RabbitMQ message - MessageId: {MessageId}", messageId.Value);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing message from RabbitMQ - MessageId: {MessageId}, Type: {MessageType}",
+            _logger.LogError(ex,
+                "Error processing message from RabbitMQ - MessageId: {MessageId}, Type: {MessageType}",
                 messageId, messageType ?? "unknown");
 
             try
             {
-                // Requeue the message for retry
                 await _channel!.BasicNackAsync(args.DeliveryTag, false, true);
-                _logger.LogDebug("Requeued failed message - MessageId: {MessageId}", messageId);
             }
             catch (Exception nackEx)
             {
-                _logger.LogError(nackEx, "CRITICAL: Failed to NACK message - MessageId: {MessageId}, message may be lost", messageId);
+                _logger.LogError(nackEx,
+                    "CRITICAL: Failed to NACK message - MessageId: {MessageId}, message may be lost",
+                    messageId);
             }
         }
     }
@@ -170,15 +158,12 @@ internal sealed class RabbitMqSubscriber : IHostedService, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _logger.LogDebug("Disposing RabbitMQ Subscriber");
-
         try
         {
             if (_channel is not null)
             {
                 await _channel.CloseAsync();
                 await _channel.DisposeAsync();
-                _logger.LogDebug("RabbitMQ Subscriber channel disposed successfully");
             }
         }
         catch (Exception ex)

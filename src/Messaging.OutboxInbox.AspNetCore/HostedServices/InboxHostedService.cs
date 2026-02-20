@@ -31,32 +31,21 @@ internal sealed class InboxHostedService : BackgroundService
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.HostedServiceStarted(ServiceName);
-
-        try
-        {
-            await LoadUnprocessedMessagesAsync(cancellationToken);
-            await base.StartAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.HostedServiceError(ServiceName, ex);
-            throw;
-        }
+        await LoadUnprocessedMessagesAsync(cancellationToken);
+        await base.StartAsync(cancellationToken);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogDebug("Entering {Method}", nameof(ExecuteAsync));
-
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                InboxRecord? message = await _inboxQueue.DequeueAsync(stoppingToken);
+                var message = await _inboxQueue.DequeueAsync(stoppingToken);
 
                 if (message is null)
                 {
-                    _logger.LogWarning("Dequeued null message from inbox queue - this should not happen");
+                    _logger.LogWarning("Dequeued null inbox message - skipping");
                     continue;
                 }
 
@@ -64,97 +53,60 @@ internal sealed class InboxHostedService : BackgroundService
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                _logger.LogDebug("Inbox processing cancelled - shutting down gracefully");
                 break;
             }
             catch (Exception ex)
             {
                 _logger.HostedServiceError(ServiceName, ex);
-
-                // Continue processing other messages
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
 
         _logger.HostedServiceStopped(ServiceName);
-        _logger.LogDebug("Exiting {Method}", nameof(ExecuteAsync));
     }
 
     private async Task LoadUnprocessedMessagesAsync(CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Entering {Method}", nameof(LoadUnprocessedMessagesAsync));
+        await using var scope = _serviceProvider.CreateAsyncScope();
+        var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
 
-        try
-        {
-            await using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
-            IInboxMessagesService inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
+        var unprocessed = await inboxService.GetUnprocessedListAsync(cancellationToken);
+        var list = unprocessed.ToList();
 
-            IEnumerable<InboxRecord> unprocessedMessages = await inboxService.GetUnprocessedListAsync(cancellationToken);
-            var messagesList = unprocessedMessages.ToList();
+        foreach (var message in list)
+            _inboxQueue.Enqueue(message);
 
-            if (!messagesList.Any())
-            {
-                _logger.LogInformation("No unprocessed inbox messages found on startup");
-                return;
-            }
-
-            foreach (InboxRecord message in messagesList)
-            {
-                _inboxQueue.Enqueue(message);
-                _logger.InboxMessageEnqueued(message.Id, message.Type);
-            }
-
-            _logger.InboxUnprocessedMessagesLoaded(messagesList.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogCritical(ex, "CRITICAL: Failed to load unprocessed inbox messages on startup - messages may be lost");
-            throw; // Re-throw to prevent service from starting in bad state
-        }
-        finally
-        {
-            _logger.LogDebug("Exiting {Method}", nameof(LoadUnprocessedMessagesAsync));
-        }
+        if (list.Count > 0)
+            _logger.InboxUnprocessedMessagesLoaded(list.Count);
+        else
+            _logger.LogInformation("No unprocessed inbox messages found on startup");
     }
 
     private async Task ProcessMessageAsync(InboxRecord message, CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Entering {Method} - MessageId: {MessageId}", nameof(ProcessMessageAsync), message.Id);
         var stopwatch = Stopwatch.StartNew();
 
-        await using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
-        IInboxMessagesService inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
-        IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+        await using var scope = _serviceProvider.CreateAsyncScope();
+        var inboxService = scope.ServiceProvider.GetRequiredService<IInboxMessagesService>();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
         try
         {
             _logger.InboxMessageProcessing(message.Id, message.Type);
 
-            // Idempotency check
-            var isProcessed = await inboxService.IsProcessedAsync(message.Id, cancellationToken);
-            if (isProcessed)
+            if (await inboxService.IsProcessedAsync(message.Id, cancellationToken))
             {
                 _logger.InboxMessageAlreadyProcessed(message.Id, message.Type);
                 return;
             }
 
-            // Deserialize message
-            Type? messageType = Type.GetType(message.Type);
-            if (messageType is null)
-            {
-                throw new InvalidOperationException($"Type not found: {message.Type}");
-            }
+            var messageType = Type.GetType(message.Type)
+                ?? throw new InvalidOperationException($"Type not found: {message.Type}");
 
-            object? deserializedMessage = JsonSerializer.Deserialize(message.Content, messageType);
-            if (deserializedMessage is null)
-            {
-                throw new InvalidOperationException($"Failed to deserialize message - content may be malformed");
-            }
+            var deserialized = JsonSerializer.Deserialize(message.Content, messageType)
+                ?? throw new InvalidOperationException("Failed to deserialize message content");
 
-            // Send to handler via MediatR
-            await mediator.Send(deserializedMessage, cancellationToken);
-
-            // Mark as processed
+            await mediator.Send(deserialized, cancellationToken);
             await inboxService.MarkAsProcessedAsync(message.Id, cancellationToken);
 
             stopwatch.Stop();
@@ -174,23 +126,15 @@ internal sealed class InboxHostedService : BackgroundService
             catch (Exception markFailedEx)
             {
                 _logger.LogError(markFailedEx,
-                    "CRITICAL: Failed to mark inbox message as failed - MessageId: {MessageId}, OriginalError: {OriginalError}",
-                    message.Id, errorMessage);
+                    "Failed to mark inbox message as failed - MessageId: {MessageId}", message.Id);
             }
 
-            // Re-throw to allow retry mechanism if configured
-            throw;
-        }
-        finally
-        {
-            _logger.LogDebug("Exiting {Method} - MessageId: {MessageId}, Duration: {DurationMs}ms",
-                nameof(ProcessMessageAsync), message.Id, stopwatch.ElapsedMilliseconds);
         }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Stopping {ServiceName} - waiting for in-flight messages", ServiceName);
+        _logger.LogInformation("Stopping {ServiceName}", ServiceName);
         await base.StopAsync(cancellationToken);
     }
 }

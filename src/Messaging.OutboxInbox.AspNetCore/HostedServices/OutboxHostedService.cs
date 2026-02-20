@@ -17,7 +17,8 @@ internal sealed class OutboxHostedService : BackgroundService
     private readonly ILogger<OutboxHostedService> _logger;
     private const string ServiceName = "OutboxHostedService";
 
-    public OutboxHostedService(IServiceProvider serviceProvider,
+    public OutboxHostedService(
+        IServiceProvider serviceProvider,
         IOutboxMessageQueue outboxQueue,
         ILogger<OutboxHostedService> logger)
     {
@@ -29,32 +30,21 @@ internal sealed class OutboxHostedService : BackgroundService
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.HostedServiceStarted(ServiceName);
-
-        try
-        {
-            await LoadUnprocessedMessagesAsync(cancellationToken);
-            await base.StartAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.HostedServiceError(ServiceName, ex);
-            throw;
-        }
+        await LoadUnprocessedMessagesAsync(cancellationToken);
+        await base.StartAsync(cancellationToken);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogDebug("Entering {Method}", nameof(ExecuteAsync));
-
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                OutboxRecord? message = await _outboxQueue.DequeueAsync(stoppingToken);
+                var message = await _outboxQueue.DequeueAsync(stoppingToken);
 
                 if (message is null)
                 {
-                    _logger.LogWarning("Dequeued null message from outbox queue - this should not happen");
+                    _logger.LogWarning("Dequeued null outbox message - skipping");
                     continue;
                 }
 
@@ -62,84 +52,54 @@ internal sealed class OutboxHostedService : BackgroundService
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                _logger.LogDebug("Outbox processing cancelled - shutting down gracefully");
                 break;
             }
             catch (Exception ex)
             {
                 _logger.HostedServiceError(ServiceName, ex);
-
-                // Continue processing other messages
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
 
         _logger.HostedServiceStopped(ServiceName);
-        _logger.LogDebug("Exiting {Method}", nameof(ExecuteAsync));
     }
 
     private async Task LoadUnprocessedMessagesAsync(CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Entering {Method}", nameof(LoadUnprocessedMessagesAsync));
+        await using var scope = _serviceProvider.CreateAsyncScope();
+        var outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
 
-        try
-        {
-            await using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
-            IOutboxMessagesService outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
+        var unprocessed = await outboxService.GetUnprocessedListAsync(cancellationToken);
+        var list = unprocessed.ToList();
 
-            IEnumerable<OutboxRecord> unprocessedMessages = await outboxService.GetUnprocessedListAsync(cancellationToken);
-            var messagesList = unprocessedMessages.ToList();
+        foreach (var message in list)
+            _outboxQueue.Enqueue(message);
 
-            if (!messagesList.Any())
-            {
-                _logger.LogInformation("No unprocessed outbox messages found on startup");
-                return;
-            }
-
-            foreach (OutboxRecord message in messagesList)
-            {
-                _outboxQueue.Enqueue(message);
-                _logger.OutboxMessageEnqueued(message.Id, message.Type);
-            }
-
-            _logger.OutboxUnprocessedMessagesLoaded(messagesList.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogCritical(ex, "CRITICAL: Failed to load unprocessed outbox messages on startup - messages may be lost");
-            throw; // Re-throw to prevent service from starting in bad state
-        }
-        finally
-        {
-            _logger.LogDebug("Exiting {Method}", nameof(LoadUnprocessedMessagesAsync));
-        }
+        if (list.Count > 0)
+            _logger.OutboxUnprocessedMessagesLoaded(list.Count);
+        else
+            _logger.LogInformation("No unprocessed outbox messages found on startup");
     }
 
     private async Task ProcessMessageAsync(OutboxRecord message, CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Entering {Method} - MessageId: {MessageId}", nameof(ProcessMessageAsync), message.Id);
         var stopwatch = Stopwatch.StartNew();
 
-        await using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
-        IOutboxMessagesService outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
-        RabbitMqPublisher rabbitMqPublisher = scope.ServiceProvider.GetRequiredService<RabbitMqPublisher>();
+        await using var scope = _serviceProvider.CreateAsyncScope();
+        var outboxService = scope.ServiceProvider.GetRequiredService<IOutboxMessagesService>();
+        var publisher = scope.ServiceProvider.GetRequiredService<RabbitMqPublisher>();
 
         try
         {
             _logger.OutboxMessageProcessing(message.Id, message.Type);
 
-            // Idempotency check
-            var isProcessed = await outboxService.IsProcessedAsync(message.Id, cancellationToken);
-            if (isProcessed)
+            if (await outboxService.IsProcessedAsync(message.Id, cancellationToken))
             {
                 _logger.OutboxMessageAlreadyProcessed(message.Id, message.Type);
                 return;
             }
 
-            // Publish to RabbitMQ
-            await rabbitMqPublisher.PublishAsync(message, cancellationToken);
-
-            // Mark as processed
+            await publisher.PublishAsync(message, cancellationToken);
             await outboxService.MarkAsProcessedAsync(message.Id, cancellationToken);
 
             stopwatch.Stop();
@@ -159,23 +119,15 @@ internal sealed class OutboxHostedService : BackgroundService
             catch (Exception markFailedEx)
             {
                 _logger.LogError(markFailedEx,
-                    "CRITICAL: Failed to mark outbox message as failed - MessageId: {MessageId}, OriginalError: {OriginalError}",
-                    message.Id, errorMessage);
+                    "Failed to mark outbox message as failed - MessageId: {MessageId}", message.Id);
             }
 
-            // Re-throw to allow retry mechanism if configured
-            throw;
-        }
-        finally
-        {
-            _logger.LogDebug("Exiting {Method} - MessageId: {MessageId}, Duration: {DurationMs}ms",
-                nameof(ProcessMessageAsync), message.Id, stopwatch.ElapsedMilliseconds);
         }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Stopping {ServiceName} - waiting for in-flight messages", ServiceName);
+        _logger.LogInformation("Stopping {ServiceName}", ServiceName);
         await base.StopAsync(cancellationToken);
     }
 }

@@ -2,7 +2,7 @@
 
 public sealed class ConversionAuditLog
 {
-    public Guid Id { get; init; }
+    public Guid Id { get; init; } = Guid.CreateVersion7();
     public Guid ConversionId { get; init; }
     public string DataSource { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;

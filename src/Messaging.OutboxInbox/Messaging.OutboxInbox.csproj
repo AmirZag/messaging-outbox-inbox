@@ -10,9 +10,15 @@
 		<PackageId>Messaging.OutboxInbox</PackageId>
 		<Version>1.0.0</Version>
 		<Authors>Amirreza Ghasemi</Authors>
+		<Owners>Reza Noei</Owners>
 		<Company>Resaa</Company>
 		<Product>Messaging.OutboxInbox</Product>
-		<Description>Reliable messaging library implementing Transactional Outbox and Inbox patterns for distributed systems. Ensures exactly-once message delivery with PostgreSQL and MediatR integration.</Description>
+		<Description>
+			Reliable messaging library implementing Transactional Outbox and Inbox patterns for distributed systems.
+			Ensures exactly-once message delivery with PostgreSQL and MediatR integration.
+			Solution Architect: Reza Noei (reza.noei@chmail.ir)
+			Implementation: Amirreza Ghasemi (arezaqassemi@gmail.com)
+		</Description>
 		<PackageTags>outbox;inbox;messaging;rabbitmq;postgresql;distributed-systems;event-driven;cqrs;mediatr;transactional-outbox</PackageTags>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageProjectUrl>https://github.com/AmirZag/messaging-outbox-inbox</PackageProjectUrl>
@@ -20,7 +26,7 @@
 		<RepositoryType>git</RepositoryType>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageIcon>icon.png</PackageIcon>
-		<Copyright>Copyright © 2025</Copyright>
+		<Copyright>Copyright © 2025 Resaa.</Copyright>
 
 		<!-- Documentation -->
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>

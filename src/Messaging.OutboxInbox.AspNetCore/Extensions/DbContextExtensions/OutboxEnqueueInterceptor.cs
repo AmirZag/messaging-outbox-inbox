@@ -4,11 +4,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 
 namespace Messaging.OutboxInbox.AspNetCore.Extensions.DbContextExtensions;
 
 internal sealed class OutboxEnqueueInterceptor : SaveChangesInterceptor
 {
+    private static readonly ConcurrentDictionary<DbContext, List<OutboxRecord>> _storage = new();
+
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
         DbContextEventData eventData,
         InterceptionResult<int> result,
@@ -43,7 +46,25 @@ internal sealed class OutboxEnqueueInterceptor : SaveChangesInterceptor
         return base.SavedChanges(eventData, result);
     }
 
-    private void CaptureOutboxRecords(DbContext? context)
+    // Bug 2 fix: clean up on failure to prevent memory leak
+    public override void SaveChangesFailed(DbContextErrorEventData eventData)
+    {
+        if (eventData.Context is not null)
+            _storage.TryRemove(eventData.Context, out _);
+
+        base.SaveChangesFailed(eventData);
+    }
+
+    public override Task SaveChangesFailedAsync(DbContextErrorEventData eventData,
+        CancellationToken cancellationToken = default)
+    {
+        if (eventData.Context is not null)
+            _storage.TryRemove(eventData.Context, out _);
+
+        return base.SaveChangesFailedAsync(eventData, cancellationToken);
+    }
+
+    private static void CaptureOutboxRecords(DbContext? context)
     {
         if (context is null) return;
 
@@ -53,44 +74,19 @@ internal sealed class OutboxEnqueueInterceptor : SaveChangesInterceptor
             .ToList();
 
         if (trackedRecords.Any())
-        {
-            PendingOutboxRecords.Set(context, trackedRecords);
-        }
+            _storage[context] = trackedRecords;
     }
 
-    private void EnqueueCapturedRecords(DbContext? context)
+    private static void EnqueueCapturedRecords(DbContext? context)
     {
         if (context is null) return;
 
-        var records = PendingOutboxRecords.GetAndRemove(context);
+        if (!_storage.TryRemove(context, out var records)) return;
 
-        if (records is null) return;
-
-        // Get the queue from the DbContext's service provider (application services)
         var queue = context.GetService<IOutboxMessageQueue>();
-
         if (queue is null) return;
 
         foreach (var record in records)
-        {
             queue.Enqueue(record);
-        }
-    }
-
-    private static class PendingOutboxRecords
-    {
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<DbContext, List<OutboxRecord>>
-            _storage = new();
-
-        public static void Set(DbContext context, List<OutboxRecord> records)
-        {
-            _storage[context] = records;
-        }
-
-        public static List<OutboxRecord>? GetAndRemove(DbContext context)
-        {
-            _storage.TryRemove(context, out var records);
-            return records;
-        }
     }
 }

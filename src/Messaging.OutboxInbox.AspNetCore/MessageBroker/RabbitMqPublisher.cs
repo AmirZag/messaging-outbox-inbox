@@ -31,14 +31,10 @@ internal sealed class RabbitMqPublisher : IAsyncDisposable
     {
         if (_isInitialized) return;
 
-        _logger.LogDebug("Entering {Method}", nameof(EnsureInitializedAsync));
-
         await _initLock.WaitAsync(cancellationToken);
         try
         {
             if (_isInitialized) return;
-
-            _logger.LogDebug("Initializing RabbitMQ channel and exchange");
 
             _channel = await _connection.CreateChannelAsync(cancellationToken: cancellationToken);
 
@@ -50,7 +46,6 @@ internal sealed class RabbitMqPublisher : IAsyncDisposable
                 cancellationToken: cancellationToken);
 
             _isInitialized = true;
-
             _logger.RabbitMqPublisherInitialized(_options.ExchangeName, _options.RoutingKey);
         }
         catch (Exception ex)
@@ -61,34 +56,28 @@ internal sealed class RabbitMqPublisher : IAsyncDisposable
         finally
         {
             _initLock.Release();
-            _logger.LogDebug("Exiting {Method}", nameof(EnsureInitializedAsync));
         }
     }
 
     public async Task PublishAsync(OutboxRecord message, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
-        _logger.LogDebug("Entering {Method} - MessageId: {MessageId}", nameof(PublishAsync), message.Id);
+
+        await EnsureInitializedAsync(cancellationToken);
+
+        var body = Encoding.UTF8.GetBytes(message.Content);
+        var properties = new BasicProperties
+        {
+            Persistent = true,
+            ContentType = "application/json",
+            MessageId = message.Id.ToString(),
+            Timestamp = new AmqpTimestamp(new DateTimeOffset(message.OccurredAt).ToUnixTimeSeconds()),
+            Type = message.Type
+        };
 
         try
         {
-            await EnsureInitializedAsync(cancellationToken);
-
-            if (_channel is null)
-                throw new InvalidOperationException("RabbitMQ channel not available - initialization may have failed");
-
-            var body = Encoding.UTF8.GetBytes(message.Content);
-
-            var properties = new BasicProperties
-            {
-                Persistent = true,
-                ContentType = "application/json",
-                MessageId = message.Id.ToString(),
-                Timestamp = new AmqpTimestamp(new DateTimeOffset(message.OccurredAt).ToUnixTimeSeconds()),
-                Type = message.Type
-            };
-
-            await _channel.BasicPublishAsync(
+            await _channel!.BasicPublishAsync(
                 exchange: _options.ExchangeName,
                 routingKey: _options.RoutingKey,
                 mandatory: false,
@@ -101,27 +90,20 @@ internal sealed class RabbitMqPublisher : IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Failed to publish message to RabbitMQ - MessageId: {MessageId}, Type: {MessageType}, Exchange: {ExchangeName}, RoutingKey: {RoutingKey}",
+                "Failed to publish - MessageId: {MessageId}, Type: {MessageType}, Exchange: {ExchangeName}, RoutingKey: {RoutingKey}",
                 message.Id, message.Type, _options.ExchangeName, _options.RoutingKey);
             throw;
-        }
-        finally
-        {
-            _logger.LogDebug("Exiting {Method} - MessageId: {MessageId}", nameof(PublishAsync), message.Id);
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        _logger.LogDebug("Disposing RabbitMQ Publisher");
-
         try
         {
             if (_channel is not null)
             {
                 await _channel.CloseAsync();
                 await _channel.DisposeAsync();
-                _logger.LogDebug("RabbitMQ channel disposed successfully");
             }
         }
         catch (Exception ex)

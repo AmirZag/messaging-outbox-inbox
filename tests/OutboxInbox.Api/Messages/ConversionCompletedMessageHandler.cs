@@ -22,24 +22,13 @@ public sealed class ConversionCompletedMessageHandler : IMessageHandler<Conversi
 
     public async Task Handle(ConversionCompletedMessage message, CancellationToken cancellationToken)
     {
-        _logger.LogInformation(
-            "🎯 HANDLER INVOKED! Processing ConversionCompletedMessage for Conversion {ConversionId}",
-            message.ConversionId);
+        _logger.LogInformation("Start Processing ConversionCompletedMessage for Conversion {ConversionId}", message.ConversionId);
 
-        _logger.LogInformation(
-            "📊 Conversion Details: DataSource={DataSource}, File={FileName}, Converted={Converted}/{Total}",
-            message.DataSource,
-            message.FileName,
-            message.ConvertedRecordsCount,
-            message.TotalRecordCount);
-
-        // Calculate metrics
         var duration = message.FinishedAt - message.StartedAt;
         var successRate = message.TotalRecordCount > 0
             ? (double)message.ConvertedRecordsCount / message.TotalRecordCount * 100
             : 0;
 
-        // Create audit log
         var auditLog = new ConversionAuditLog
         {
             Id = Guid.CreateVersion7(),
@@ -51,16 +40,12 @@ public sealed class ConversionCompletedMessageHandler : IMessageHandler<Conversi
             SuccessRate = successRate,
             Duration = duration,
             AuditedAt = DateTime.UtcNow,
-            Notes = $"Conversion completed in {duration.TotalSeconds:F2} seconds with {successRate:F1}% success rate"
+            Notes = $"Completed in {duration.TotalSeconds:F2}s with {successRate:F1}% success rate"
         };
 
         _dbContext.ConversionAuditLogs.Add(auditLog);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation(
-            "✅ SUCCESS! Audit log created for Conversion {ConversionId}. Success Rate: {SuccessRate:F1}%, Duration: {Duration:F2}s",
-            message.ConversionId,
-            successRate,
-            duration.TotalSeconds);
+        _logger.LogInformation("========= [AUDIT] Conversion created. ConversionId={ConversionId} =========", message.ConversionId);
     }
 }

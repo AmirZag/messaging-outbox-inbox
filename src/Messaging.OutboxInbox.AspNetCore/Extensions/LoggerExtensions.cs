@@ -15,13 +15,13 @@ internal static class LoggerExtensions
         LoggerMessage.Define<Guid, string>(
             LogLevel.Information,
             new EventId(1002, nameof(OutboxMessageProcessing)),
-            "Processing outbox message - MessageId: {MessageId}, Type: {MessageType}");
+            "===!!! Processing outbox message - MessageId: {MessageId}, Type: {MessageType} !!!===");
 
     private static readonly Action<ILogger, Guid, string, long, Exception?> _outboxMessageProcessed =
         LoggerMessage.Define<Guid, string, long>(
             LogLevel.Information,
             new EventId(1003, nameof(OutboxMessageProcessed)),
-            "Outbox message processed successfully - MessageId: {MessageId}, Type: {MessageType}, DurationMs: {DurationMs}");
+            "===<<< Outbox message processed successfully - MessageId: {MessageId}, Type: {MessageType}, DurationMs: {DurationMs} >>>===");
 
     private static readonly Action<ILogger, Guid, string, Exception?> _outboxMessageAlreadyProcessed =
         LoggerMessage.Define<Guid, string>(
@@ -64,7 +64,7 @@ internal static class LoggerExtensions
         LoggerMessage.Define<Guid, string>(
             LogLevel.Information,
             new EventId(2004, nameof(InboxMessageProcessing)),
-            "Processing inbox message - MessageId: {MessageId}, Type: {MessageType}");
+            "===>>> Processing inbox message - MessageId: {MessageId}, Type: {MessageType} <<<===");
 
     private static readonly Action<ILogger, Guid, string, long, Exception?> _inboxMessageProcessed =
         LoggerMessage.Define<Guid, string, long>(
@@ -101,7 +101,7 @@ internal static class LoggerExtensions
         LoggerMessage.Define<Guid, string, string, string>(
             LogLevel.Information,
             new EventId(3002, nameof(RabbitMqMessagePublished)),
-            "Published message to RabbitMQ - MessageId: {MessageId}, Type: {MessageType}, Exchange: {ExchangeName}, RoutingKey: {RoutingKey}");
+            "===^^^ Published message to RabbitMQ - MessageId: {MessageId}, Type: {MessageType}, Exchange: {ExchangeName}, RoutingKey: {RoutingKey} ^^^===");
 
     private static readonly Action<ILogger, string, Exception?> _rabbitMqSubscriberStarted =
         LoggerMessage.Define<string>(
